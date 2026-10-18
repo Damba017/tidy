@@ -60,7 +60,10 @@ public struct RemovalPlan: Sendable {
         for (title, group) in [("Move to the Trash", items(.trash)), ("Needs administrator rights (sudo)", items(.sudo))]
         where !group.isEmpty {
             lines.append("\(title): \(Self.describe(group))")
-            lines += group.map { "  " + Self.pad(Size.format($0.size)) + "  " + Paths.display($0.path) }
+            lines += group.map { item in
+                let note = Launchctl.domain(of: item.path) == nil ? "" : "  (stops its launchd job first)"
+                return "  " + Self.pad(Size.format(item.size)) + "  " + Paths.display(item.path) + note
+            }
             lines.append("")
         }
         if !blocked.isEmpty {

@@ -18,11 +18,12 @@ public enum Remover {
         say: (String) -> Void,
         ask: (String) -> Bool
     ) -> RemovalResult {
-        run(plan, dryRun: dryRun, say: say, ask: ask, log: .standard, sudo: Sudo.run, trashItem: Trash.system)
+        run(plan, dryRun: dryRun, say: say, ask: ask, log: .standard, sudo: Sudo.run, launchctl: Launchctl.run,
+            trashItem: Trash.system)
     }
 
-    /// Same, with the log, sudo and the final Trash move passed in. No defaults on purpose:
-    /// tests must name their fake Trash and fake sudo, so they can never reach the real ones by accident.
+    /// Same, with the log, sudo, launchctl and the final Trash move passed in. No defaults on purpose:
+    /// tests must name their fakes, so they can never reach the real ones by accident.
     static func run(
         _ plan: RemovalPlan,
         dryRun: Bool,
@@ -30,6 +31,7 @@ public enum Remover {
         ask: (String) -> Bool,
         log: Log,
         sudo: ([String]) -> Int32,
+        launchctl: ([String]) -> Int32,
         trashItem: (String) throws -> String
     ) -> RemovalResult {
         plan.render().forEach(say)
@@ -67,6 +69,10 @@ public enum Remover {
         if !normal.isEmpty {
             if ask("Move \(RemovalPlan.describe(normal)) to the Trash?") {
                 for item in normal {
+                    // Stop a launch agent before its plist goes, but never for a path the Trash would refuse.
+                    if Launchctl.domain(of: item.path) == .user, Denylist.reason(for: item.path, home: plan.home) == nil {
+                        _ = launchctl(Launchctl.bootout(item.path, in: .user))
+                    }
                     do {
                         moved(item, to: try Trash.move(item.path, home: plan.home, using: trashItem), sudo: false)
                     } catch {
@@ -96,6 +102,11 @@ public enum Remover {
                         if let reason = Denylist.reason(for: item.path, home: plan.home) {
                             failed(item, "refused \(Paths.display(item.path)): \(reason)", sudo: true)
                             continue
+                        }
+                        switch Launchctl.domain(of: item.path) {
+                        case .user: _ = launchctl(Launchctl.bootout(item.path, in: .user))
+                        case .system: _ = sudo(["-n", "/bin/launchctl"] + Launchctl.bootout(item.path, in: .system))
+                        case nil: break
                         }
                         let destination = Trash.freeDestination(for: item.path, in: plan.home + "/.Trash")
                         let status = sudo(Sudo.moveCommand(from: item.path, to: destination))

@@ -30,6 +30,35 @@ enum Key: Equatable {
             return String(decoding: bytes, as: UTF8.self).first.map(Key.char)
         }
     }
+
+    /// Every key in one read(): fast typing and pasting deliver several at once.
+    static func parseAll(_ bytes: [UInt8]) -> [Key] {
+        var keys: [Key] = []
+        var start = 0
+        while start < bytes.count {
+            let end = start + length(of: bytes, at: start)
+            if let key = parse(Array(bytes[start..<end])) { keys.append(key) }
+            start = end
+        }
+        return keys
+    }
+
+    /// Bytes taken by the key at `start`: an escape sequence, one UTF-8 character, or one byte.
+    private static func length(of bytes: [UInt8], at start: Int) -> Int {
+        let first = bytes[start]
+        let left = bytes.count - start
+        if first == 27 {
+            guard left > 2, bytes[start + 1] == UInt8(ascii: "[") || bytes[start + 1] == UInt8(ascii: "O") else { return 1 }
+            // ESC [ or ESC O, then parameter bytes (0-9 ; etc.), then one final byte.
+            var end = start + 2
+            while end < bytes.count && (0x30...0x3F).contains(bytes[end]) { end += 1 }
+            return min(bytes.count, end + 1) - start
+        }
+        if first >= 0xF0 { return min(4, left) }
+        if first >= 0xE0 { return min(3, left) }
+        if first >= 0xC0 { return min(2, left) }
+        return 1
+    }
 }
 
 /// Raw mode on the alternate screen. Always restored: by `stop()`, at exit, and on fatal signals.
@@ -38,6 +67,7 @@ enum Terminal {
     nonisolated(unsafe) private static var active = false
     nonisolated(unsafe) private static var handlersInstalled = false
     nonisolated(unsafe) static var resized = false
+    nonisolated(unsafe) private static var pending: [Key] = []
 
     static func start() {
         guard !active else { return }
@@ -71,11 +101,14 @@ enum Terminal {
         return (24, 80)
     }
 
-    /// Waits up to 0.1 s for a key.
+    /// The next key, waiting up to 0.1 s when none are queued.
     static func readKey() -> Key? {
-        var bytes = [UInt8](repeating: 0, count: 32)
-        let count = read(STDIN_FILENO, &bytes, bytes.count)
-        return count > 0 ? Key.parse(Array(bytes[..<count])) : nil
+        if pending.isEmpty {
+            var bytes = [UInt8](repeating: 0, count: 256)
+            let count = read(STDIN_FILENO, &bytes, bytes.count)
+            if count > 0 { pending = Key.parseAll(Array(bytes[..<count])) }
+        }
+        return pending.isEmpty ? nil : pending.removeFirst()
     }
 
     /// Blocks until a key is pressed. Nil means the window was resized and needs a redraw.

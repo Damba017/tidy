@@ -52,7 +52,7 @@ switch command {
 case nil:
     fail("main menu is not implemented yet.", code: 1)
 case "uninstall":
-    fail("'uninstall' is not implemented yet.", code: 1)
+    exit(runUninstall(names: rest, dryRun: dryRun))
 case "disk":
     if rest.count > 1 { fail("'disk' takes at most one path.") }
     exit(runDisk(path: rest.first, dryRun: dryRun))

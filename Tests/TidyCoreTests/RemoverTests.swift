@@ -7,6 +7,9 @@ final class Transcript {
     var lines: [String] = []
     var questions: [String] = []
     var sudoCalls: [[String]] = []
+    var launchctlCalls: [[String]] = []
+    /// launchctl and sudo calls in the order they happened.
+    var events: [String] = []
     var answer = false
     var sudoStatus: Int32 = 0
 
@@ -21,13 +24,26 @@ final class Transcript {
     /// Stands in for sudo: records the command and runs nothing.
     func sudo(_ arguments: [String]) -> Int32 {
         sudoCalls.append(arguments)
+        events.append("sudo " + arguments.joined(separator: " "))
         return sudoStatus
+    }
+
+    /// Stands in for launchctl: records the command and runs nothing.
+    func launchctl(_ arguments: [String]) -> Int32 {
+        launchctlCalls.append(arguments)
+        events.append("launchctl " + arguments.joined(separator: " "))
+        return 0
     }
 }
 
-/// Runs the remover inside a fixture: fake Trash, fake sudo, log in the fixture.
+/// Runs the remover inside a fixture: fake Trash, fake sudo, fake launchctl, log in the fixture.
 func run(_ plan: RemovalPlan, in fx: Fixture, _ t: Transcript, dryRun: Bool = false) -> RemovalResult {
-    Remover.run(plan, dryRun: dryRun, say: t.say, ask: t.ask, log: fx.log, sudo: t.sudo, trashItem: fx.trash)
+    Remover.run(
+        plan, dryRun: dryRun, say: t.say, ask: t.ask, log: fx.log, sudo: t.sudo, launchctl: t.launchctl,
+        trashItem: { path in
+            t.events.append("trash " + path)
+            return try fx.trash(path)
+        })
 }
 
 @Test func planSortsPathsByWhatWillHappen() throws {
@@ -202,6 +218,66 @@ func run(_ plan: RemovalPlan, in fx: Fixture, _ t: Transcript, dryRun: Bool = fa
     #expect(Paths.exists(keychains))
 }
 
+@Test func launchAgentIsStoppedBeforeItsPlistMoves() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let plist = try fx.file("home/Library/LaunchAgents/com.example.agent.plist")
+    let t = Transcript()
+    t.answer = true
+
+    let plan = RemovalPlan(paths: [plist], home: fx.home)
+    #expect(plan.render().contains { $0.contains("(stops its launchd job first)") })
+    let result = run(plan, in: fx, t)
+
+    #expect(result.moved == 1)
+    #expect(t.events == ["launchctl bootout gui/\(getuid()) \(plist)", "trash \(plist)"])
+}
+
+@Test func launchDaemonIsStoppedWithSudoBeforeItsPlistMoves() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let plist = try fx.file("home/Library/LaunchDaemons/com.example.daemon.plist")
+    try fx.folder("home/.Trash")
+    let t = Transcript()
+    t.answer = true
+
+    _ = run(RemovalPlan(items: [.init(path: plist, size: 10, status: .sudo)], home: fx.home), in: fx, t)
+
+    #expect(t.events == [
+        "sudo -v",
+        "sudo -n /bin/launchctl bootout system \(plist)",
+        "sudo -n /bin/mv -n -- \(plist) \(fx.home)/.Trash/com.example.daemon.plist",
+    ])
+    #expect(t.launchctlCalls.isEmpty)
+}
+
+@Test func nothingIsStoppedInADryRunOrWhenTheAnswerIsNo() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let plist = try fx.file("home/Library/LaunchAgents/com.example.agent.plist")
+    let t = Transcript()
+
+    _ = run(RemovalPlan(paths: [plist], home: fx.home), in: fx, t, dryRun: true)
+    _ = run(RemovalPlan(paths: [plist], home: fx.home), in: fx, t)
+
+    #expect(t.events.isEmpty)
+    #expect(Paths.exists(plist))
+}
+
+@Test func protectedPlistsAreNeverStopped() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let plist = try fx.file("home/.Trash/LaunchAgents/com.example.agent.plist")  // protected: already in the Trash
+    let t = Transcript()
+    t.answer = true
+
+    let result = run(RemovalPlan(items: [.init(path: plist, size: 10, status: .trash)], home: fx.home), in: fx, t)
+
+    #expect(t.events.isEmpty)
+    #expect(result.failed == 1)
+    #expect(Paths.exists(plist))
+}
+
 /// The only test that uses the real Trash: moves two tidy-test-* fixtures into ~/.Trash.
 /// Runs only with TIDY_TRASH_TESTS=1.
 @Test(.enabled(if: ProcessInfo.processInfo.environment["TIDY_TRASH_TESTS"] == "1"))
@@ -216,7 +292,7 @@ func realTrashMovesFixturesAndLogsThem() throws {
 
     let result = Remover.run(
         RemovalPlan(paths: [a, folder], home: fx.home), dryRun: false, say: t.say, ask: t.ask,
-        log: fx.log, sudo: t.sudo, trashItem: Trash.system)
+        log: fx.log, sudo: t.sudo, launchctl: t.launchctl, trashItem: Trash.system)
 
     #expect(result.moved == 2)
     #expect(!Paths.exists(a) && !Paths.exists(folder))
