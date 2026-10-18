@@ -27,6 +27,17 @@ public enum Size {
         return total
     }
 
+    /// "500MB", "1.5G", "2 GB", "300000" → bytes, decimal units like Finder. Nil if it isn't a size.
+    public static func parse(_ text: String) -> Int64? {
+        let text = text.trimmingCharacters(in: .whitespaces).uppercased()
+        let number = text.prefix { $0.isNumber || $0 == "." }
+        let unit = text.dropFirst(number.count).trimmingCharacters(in: .whitespaces)
+        let factors: [String: Double] = ["": 1, "B": 1, "K": 1e3, "KB": 1e3, "M": 1e6, "MB": 1e6, "G": 1e9, "GB": 1e9,
+                                         "T": 1e12, "TB": 1e12]
+        guard let value = Double(number), let factor = factors[unit] else { return nil }
+        return Int64(value * factor)
+    }
+
     /// Decimal units like Finder: 1 KB = 1000 bytes. "92 KB", "1.2 MB", "840 KB".
     public static func format(_ bytes: Int64) -> String {
         if bytes < 1000 { return "\(bytes) B" }

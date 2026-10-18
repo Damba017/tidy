@@ -6,6 +6,11 @@ public enum RunningApps {
         !instances(of: app).isEmpty
     }
 
+    /// Bundle IDs of everything running now, wherever it was started from.
+    public static func bundleIDs() -> [String] {
+        NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier)
+    }
+
     /// Asks every instance to quit and waits up to `timeout` seconds. True once they're all gone.
     public static func quit(_ app: App, timeout: TimeInterval = 15) -> Bool {
         let running = instances(of: app)

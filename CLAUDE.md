@@ -84,7 +84,7 @@ Accepts **multiple names** (`tidy uninstall discord firefox fastfetch cava`). Wi
 - First a "Found N" summary: name, full path, source per target. Ambiguous names get a pick-one prompt each; names with no match are reported and skipped.
 - One combined "quit running apps?" prompt for all running targets.
 - One combined review list, **grouped per app** (collapsible, with per-app totals; groups needing sudo are labelled). Each group header has its own checkbox: toggling it selects/deselects all items in that group; it shows `[x]` when all are selected, `[ ]` when none, `[~]` when some. Individual items stay toggleable. Then **one** `y/N` for everything that can go to the Trash without root.
-- **Fuzzy matches are never removed on that same y.** Ticked fuzzy items get their own block in the plan ("Fuzzy matches, asked separately") and their own single `y/N`: one y takes all of them, N keeps all of them. Ticked fuzzy items that need root join the sudo prompt only after that y.
+- **Fuzzy matches are never removed on that same y.** Ticked fuzzy items get their own block in the plan ("Fuzzy matches, asked separately") and their own question: `y = all · o = one by one · N = none (Enter)`. One by one asks `y/N` per item; an N keeps that item and goes back to the question for the rest. Ticked fuzzy items that need root join the sudo prompt only after they were approved.
 - Then **one** sudo prompt for all root-owned items across all targets (e.g. App Store `.app` bundles).
 - Then the brew flow (step 6) **per brew package**, each with its own two questions.
 - Answering N anywhere skips only that part; the rest continues. End with a short summary (total moved, log path).
@@ -137,11 +137,15 @@ For each name:
 ### `tidy junk [category]`
 Categories (no argument = all, grouped with totals per category):
 - **orphans** — folders/plists in the `~/Library` locations whose bundle ID / name doesn't match any installed app. Always unchecked by default; mark confidence.
-- **caches** — `~/Library/Caches/*`, `~/Library/Logs/*`, old crash reports in `~/Library/Logs/DiagnosticReports`.
-- **large** — files over `--min-size` (default 1 GB) and/or not accessed in `--older-than` (default 180 days) in `~` (skip `~/Library`). Show last-used date.
-- **dev** — Xcode `DerivedData`, `Archives`, unavailable simulators (`xcrun simctl list` read-only), stale `node_modules`, `.build`, `target`, `__pycache__`, package-manager caches. Only if they exist.
+  - Only **bundle-ID-shaped** names count (`com.foo.bar`, `TEAMID.com.foo.bar`, `group.com.foo.bar`, ≥ 3 parts): plain names in `~/Library` are mostly macOS's own (`AddressBook`, `Knowledge`, `familycircled.plist`, …).
+  - Never anything containing `com.apple`, nor Apple parts with other names (`org.cups`, `is.workflow` = Shortcuts, …).
+  - Claimed (not an orphan): same bundle ID as an installed or running app, same vendor (`com.utmapp.*` next to UTM), or Spotlight (`mdfind kMDItemCFBundleIdentifier`) finds an app with that ID anywhere.
+  - Confidence: **low** when one of his app names appears in it, else **high**.
+- **caches** — `~/Library/Caches/*`, `~/Library/Logs/*`, crash reports in `~/Library/Logs/DiagnosticReports` older than **30 days**. Apple's `com.apple.*` caches are left alone.
+- **large** — in `~` (skip `~/Library`, `~/.Trash`, `.git`): files ≥ `--min-size` (default 1 GB), plus files ≥ 100 MB not used for `--older-than` days (default 180; "used" = later of last opened/changed). Packages (`.app`, `.photoslibrary`, `.utm`, `.sparsebundle`, …) count as one item and are never looked into. Grouped per top folder of `~` ("Large & old · Downloads"), biggest first, at most 100 (the rest is counted). Show last-used date.
+- **dev** — Xcode `DerivedData`, `Archives` (unchecked: needed to symbolicate shipped builds), unavailable simulators (`xcrun simctl list` read-only), `node_modules` (next to `package.json`), `.build` (next to `Package.swift`), `target` (next to `Cargo.toml`) when the project wasn't changed for **60 days**, `__pycache__`, package-manager caches. Only if they exist.
 
-Review list grouped per category, with the same group-checkbox rules as `uninstall` (`[x]` all / `[~]` some / `[ ]` none). **Default selection:** Caches & logs and Dev junk are checked (apps regenerate them); Large & old and Orphans are unchecked (his own files / risk of false positives) — he ticks those himself. Then one `y/N` → Trash.
+Review list grouped per category, with the same group-checkbox rules as `uninstall` (`[x]` all / `[~]` some / `[ ]` none). **Default selection:** Caches & logs and Dev junk are checked (apps regenerate them); Large & old and Orphans are unchecked (his own files / risk of false positives) — he ticks those himself. Then one `y/N` → Trash. Ticked **orphans** are asked about separately, like fuzzy matches: `y = all · o = one by one · N = none (Enter)`; in one-by-one mode an N keeps that item and goes back to that question for the rest.
 
 ### Review-list keys (shared by `uninstall` and `junk`)
 `↑`/`↓` move · `space` toggle item (or whole group when on its header) · `→` expand group · `←` collapse group (or jump to its header) · `a` toggle all items of the group the cursor is in (works on the header or on any item inside it; all → none → all) · `enter` continue to confirmation · `q`/`esc` cancel. No `n`/`y` keys in lists, so they never get confused with the `(y/N)` prompt. Groups start collapsed except small ones (≤ 5 items). Always show this key line at the bottom.

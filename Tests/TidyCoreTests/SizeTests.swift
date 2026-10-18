@@ -14,6 +14,15 @@ import Testing
     #expect(Size.format(3_400_000_000) == "3.4 GB")
 }
 
+@Test func sizesAreParsedLikeFinderShowsThem() {
+    #expect(Size.parse("500MB") == 500_000_000)
+    #expect(Size.parse("1.5G") == 1_500_000_000)
+    #expect(Size.parse("2 gb") == 2_000_000_000)
+    #expect(Size.parse("300000") == 300_000)
+    #expect(Size.parse("lots") == nil)
+    #expect(Size.parse("5 parsecs") == nil)
+}
+
 @Test func allocatedSizeCountsFolderContentsAndHardLinksOnce() throws {
     let fx = try Fixture()
     defer { fx.remove() }

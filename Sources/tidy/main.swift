@@ -14,6 +14,8 @@ Usage:
 
 Options:
   --dry-run                  Show exactly what would happen. Never touches anything.
+  --min-size SIZE            junk large: files at least this big (default 1GB; e.g. 500MB, 2GB)
+  --older-than DAYS          junk large: also files from 100MB unused this long (default 180)
 
 Every destructive action asks (y/N) first. There is no --yes.
 """
@@ -24,10 +26,25 @@ func fail(_ message: String, code: Int32 = 2) -> Never {
 }
 
 var dryRun = false
+var junkOptions = JunkOptions()
 var positional: [String] = []
 
-for arg in CommandLine.arguments.dropFirst() {
+var arguments = Array(CommandLine.arguments.dropFirst())
+while !arguments.isEmpty {
+    let arg = arguments.removeFirst()
     switch arg {
+    case "--min-size":
+        guard let value = arguments.first, let size = Size.parse(value), size > 0 else {
+            fail("--min-size needs a size, e.g. --min-size 500MB.")
+        }
+        arguments.removeFirst()
+        junkOptions.minSize = size
+    case "--older-than":
+        guard let value = arguments.first, let days = Int(value), days > 0 else {
+            fail("--older-than needs a number of days, e.g. --older-than 365.")
+        }
+        arguments.removeFirst()
+        junkOptions.olderThanDays = days
     case "--help", "-h":
         print(usage)
         exit(0)
@@ -58,10 +75,11 @@ case "disk":
     exit(runDisk(path: rest.first, dryRun: dryRun))
 case "junk":
     if rest.count > 1 { fail("'junk' takes at most one category.") }
-    if let category = rest.first, !["orphans", "caches", "large", "dev"].contains(category) {
-        fail("unknown junk category '\(category)'. Use: orphans | caches | large | dev.")
+    let category = rest.first.map { JunkCategory(rawValue: $0) }
+    if category == .some(nil) {
+        fail("unknown junk category '\(rest[0])'. Use: orphans | caches | large | dev.")
     }
-    fail("'junk' is not implemented yet.", code: 1)
+    exit(runJunk(category: category ?? nil, options: junkOptions, dryRun: dryRun))
 case "_plan":
     // Dev aid, not in --help: shows what tidy would do with these paths. Always a dry run.
     if rest.isEmpty { fail("'_plan' needs one or more paths.") }
