@@ -61,6 +61,54 @@ private func item(_ name: String, checked: Bool = true, size: Int64 = 100) -> Re
     #expect(list.selectedPaths.count == 3)  // collapsing never unchecks anything
 }
 
+@Test func tabJumpsBetweenGroupHeaders() {
+    var list = ReviewList(groups: [
+        .init(title: "A", detail: "", items: [item("a1"), item("a2")]),
+        .init(title: "B", detail: "", items: (1...8).map { item("b\($0)") }),  // starts closed
+        .init(title: "C", detail: "", items: [item("c1")]),
+    ])
+    list.jumpToGroup(forward: true)
+    #expect(list.current == .group(1))
+    list.jumpToGroup(forward: true)
+    #expect(list.current == .group(2))
+    list.jumpToGroup(forward: true)
+    #expect(list.current == .group(2))  // no wrap-around at the end
+    list.move(by: 1)
+    #expect(list.current == .item(2, 0))
+    list.jumpToGroup(forward: false)
+    #expect(list.current == .group(2))  // from an item: its own header first
+    list.jumpToGroup(forward: false)
+    #expect(list.current == .group(1))
+}
+
+@Test func searchShowsOnlyMatchesInOpenedGroups() {
+    var list = ReviewList(groups: [
+        .init(title: "Caches & logs", detail: "", items: [item("Godot"), item("pycache-ish")]),
+        .init(title: "Dev junk", detail: "", items: (1...8).map { item("proj\($0)/__pycache__") }),  // closed
+        .init(title: "Orphans", detail: "", items: [item("com.gone.app", checked: false)]),
+    ])
+    list.setSearch("PYCACHE")
+    #expect(list.rows.count == 1 + 1 + 1 + 8)  // both groups with hits, opened; Orphans hidden
+    #expect(list.matchCount == 9)
+    list.setSearch("orphans")  // a group's name matches all of its items
+    #expect(list.rows == [.group(2), .item(2, 0)])
+    list.setSearch("")
+    #expect(list.rows.count == 1 + 2 + 1 + 1 + 1)  // back to normal: Dev junk closed again
+}
+
+@Test func toggleWhileSearchingOnlyTouchesWhatIsShown() {
+    var list = ReviewList(groups: [
+        .init(title: "Dev junk", detail: "", items: [item("a/__pycache__"), item("b/node_modules"), item("c/__pycache__")]),
+    ])
+    list.setSearch("pycache")
+    list.toggle()  // on the header: all shown checked → uncheck just those
+    #expect(list.selectedPaths == ["/x/b/node_modules"])
+    list.toggleAllInGroup()
+    #expect(list.selectedPaths.count == 3)
+    list.setSearch("")
+    #expect(list.groups[0].state == .all)
+}
+
 private func candidates(_ names: [String]) -> [Candidate] {
     names.map {
         Candidate(app: App(path: "/Applications/\($0).app", bundleID: nil, bundleName: nil, displayName: nil,

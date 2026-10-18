@@ -2,14 +2,15 @@ import Foundation
 
 enum Key: Equatable {
     case up, down, left, right, pageUp, pageDown, home, end
-    case enter, backspace, escape, interrupt
+    case enter, backspace, escape, interrupt, tab, backTab
     case char(Character)
 
-    /// The bytes of one read() as a key. Unknown escape sequences are ignored.
+    /// The bytes of one key as a key. Unknown escape sequences are ignored.
     static func parse(_ bytes: [UInt8]) -> Key? {
         guard let first = bytes.first else { return nil }
         switch first {
         case 3: return .interrupt  // Ctrl-C (ISIG is off in raw mode)
+        case 9: return .tab
         case 13, 10: return .enter
         case 127, 8: return .backspace
         case 27:
@@ -24,6 +25,7 @@ enum Key: Equatable {
             case UInt8(ascii: "F"), UInt8(ascii: "4"), UInt8(ascii: "8"): return .end
             case UInt8(ascii: "5"): return .pageUp
             case UInt8(ascii: "6"): return .pageDown
+            case UInt8(ascii: "Z"): return .backTab  // ⇧Tab
             default: return nil
             }
         default:

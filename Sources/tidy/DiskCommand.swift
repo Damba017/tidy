@@ -167,6 +167,9 @@ private final class DiskBrowser {
     var cursor = 0
     var top = 0
     var message = ""
+    /// `/` search in the current folder, by name; cleared when moving to another folder.
+    var search = ""
+    var searching = false
 
     init(root: DirNode, extras: [Row], dryRun: Bool, needsFullDiskAccess: Bool) {
         self.root = root
@@ -187,7 +190,26 @@ private final class DiskBrowser {
             guard let key = Terminal.waitForKey() else { continue }
             message = ""
             let page = max(1, Terminal.size().rows - 8)
+            if searching {
+                switch key {
+                case .enter: searching = false
+                case .up, .down:
+                    searching = false
+                    cursor = max(0, min(rows.count - 1, cursor + (key == .up ? -1 : 1)))
+                case .escape:
+                    searching = false
+                    setSearch("")
+                case .backspace:
+                    if search.isEmpty { searching = false } else { setSearch(String(search.dropLast())) }
+                case .interrupt: return
+                case .char(let c) where !(c.asciiValue.map { $0 < 32 } ?? false): setSearch(search + String(c))
+                default: break
+                }
+                continue
+            }
             switch key {
+            case .char("/"): searching = true
+            case .escape where !search.isEmpty: setSearch("")  // first Esc clears the search
             case .up: cursor = max(0, cursor - 1)
             case .down: cursor = max(0, min(rows.count - 1, cursor + 1))
             case .pageUp: cursor = max(0, cursor - page)
@@ -209,9 +231,19 @@ private final class DiskBrowser {
     private func reload(selecting name: String? = nil) {
         rows = current.dirs.map(Row.folder) + current.files.map(Row.file)
         if current === root { rows += extras }
+        if !search.isEmpty { rows = rows.filter { $0.name.localizedCaseInsensitiveContains(search) } }
         rows.sort { $0.size != $1.size ? $0.size > $1.size : $0.name < $1.name }
         if let name, let index = rows.firstIndex(where: { $0.name == name }) { cursor = index }
         cursor = max(0, min(cursor, rows.count - 1))
+    }
+
+    /// Changes the search and keeps the cursor on the same entry when it's still shown.
+    private func setSearch(_ text: String) {
+        let name = selected?.name
+        search = text
+        cursor = 0
+        top = 0
+        reload(selecting: name)
     }
 
     private var selected: Row? {
@@ -232,6 +264,7 @@ private final class DiskBrowser {
             current = node
             cursor = 0
             top = 0
+            search = ""
             reload()
         case .file(let file):
             message = file.isSymlink ? "That's a symlink; tidy doesn't follow links." : "That's a file, not a folder."
@@ -246,6 +279,7 @@ private final class DiskBrowser {
         let name = current.name
         current = parent
         top = 0
+        search = ""
         reload(selecting: name)
     }
 
@@ -317,7 +351,8 @@ private final class DiskBrowser {
             "  d                           move to the Trash (shows exactly what and asks y/N first)",
             "  o                           show in Finder",
             "  r                           rescan this folder",
-            "  q or esc                    quit",
+            "  /                           search this folder by name (enter keeps it, esc clears it)",
+            "  q or esc                    quit (with a search active, esc first clears the search)",
             "",
             "Sizes are space actually used on disk (allocated), hard links count once.",
             "APFS clones and snapshots share space, so totals can differ from what Finder shows.",
@@ -341,6 +376,9 @@ private final class DiskBrowser {
         var summary = "\(Size.format(total)) · \(grouped(current.fileCount)) " + (current.fileCount == 1 ? "file" : "files")
         if let error = current.error { summary += " · \(error)" }
         if current === root { summary += " · sizes can differ from Finder, see ?" }
+        if searching || !search.isEmpty {
+            summary = "/\(search)" + (searching ? "▏" : "") + "   \(rows.count) matches   ·   " + summary
+        }
         lines.append(fit(summary, w))
         if needsFullDiskAccess {
             lines.append(fit("Some folders need Full Disk Access: System Settings → Privacy & Security → Full Disk Access → add your terminal app.", w))
@@ -351,7 +389,9 @@ private final class DiskBrowser {
         if cursor < top { top = cursor }
         if cursor >= top + listHeight { top = cursor - listHeight + 1 }
         if rows.isEmpty {
-            lines.append(fit(current.error == nil ? "  (empty folder)" : "  (can't read this folder)", w))
+            let empty = !search.isEmpty ? "  (nothing here matches \"\(search)\")"
+                : current.error == nil ? "  (empty folder)" : "  (can't read this folder)"
+            lines.append(fit(empty, w))
         }
         for i in rows.indices.dropFirst(top).prefix(listHeight) {
             let line = fit(text(of: rows[i], width: w), w)
@@ -360,7 +400,9 @@ private final class DiskBrowser {
         while lines.count < height - 3 { lines.append("") }
         lines.append(String(repeating: "─", count: w))
         lines.append(fit(message, w))
-        lines.append(fit("↑↓ move · enter open · ← back · d trash · o finder · r rescan · ? help · q quit", w))
+        lines.append(fit(searching
+            ? "type to search this folder · enter keep these results · esc clear search"
+            : "↑↓ move · enter open · ← back · / search · d trash · o finder · r rescan · ? help · q quit", w))
         Terminal.draw(lines)
     }
 

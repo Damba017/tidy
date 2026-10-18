@@ -51,16 +51,49 @@ public struct ReviewList: Sendable {
 
     public private(set) var groups: [Group]
     public private(set) var cursor = 0
+    /// `/` search: only matching items (and their groups, opened) are shown. Checks are kept.
+    public private(set) var search = ""
 
     public init(groups: [Group]) {
         self.groups = groups.filter { !$0.items.isEmpty }
     }
 
     /// What's on screen: each group header, followed by its items when it's expanded.
+    /// While searching: only groups with matches, opened, with just the matching items.
     public var rows: [Row] {
-        groups.indices.flatMap { g in
-            [Row.group(g)] + (groups[g].expanded ? groups[g].items.indices.map { Row.item(g, $0) } : [])
+        groups.indices.flatMap { g -> [Row] in
+            if search.isEmpty {
+                return [Row.group(g)] + (groups[g].expanded ? groups[g].items.indices.map { Row.item(g, $0) } : [])
+            }
+            let hits = matches(in: g)
+            return hits.isEmpty ? [] : [Row.group(g)] + hits.map { Row.item(g, $0) }
         }
+    }
+
+    /// Items of group `g` the search matches (on path, label or the group's name), all of them when not searching.
+    public func matches(in g: Int) -> [Int] {
+        guard !search.isEmpty else { return Array(groups[g].items.indices) }
+        if groups[g].title.localizedCaseInsensitiveContains(search) { return Array(groups[g].items.indices) }
+        return groups[g].items.indices.filter {
+            groups[g].items[$0].path.localizedCaseInsensitiveContains(search)
+                || groups[g].items[$0].label.localizedCaseInsensitiveContains(search)
+        }
+    }
+
+    public var matchCount: Int { groups.indices.reduce(0) { $0 + matches(in: $1).count } }
+
+    /// Changes the search; the cursor stays on the same row when it's still shown.
+    public mutating func setSearch(_ text: String) {
+        let row = current
+        search = text
+        cursor = row.flatMap { rows.firstIndex(of: $0) } ?? 0
+    }
+
+    /// Tab / ⇧Tab: the next or previous group's header. From an item, ⇧Tab goes to its own header first.
+    public mutating func jumpToGroup(forward: Bool) {
+        let headers = rows.indices.filter { if case .group = rows[$0] { true } else { false } }
+        let target = forward ? headers.first { $0 > cursor } : headers.last { $0 < cursor }
+        if let target { cursor = target }
     }
 
     public var current: Row? { rows.indices.contains(cursor) ? rows[cursor] : nil }
@@ -105,16 +138,19 @@ public struct ReviewList: Sendable {
         switch current {
         case .group(let g):
             groups[g].expanded = false
+            cursor = min(cursor, rows.count - 1)
         case .item(let g, _):
             if let header = rows.firstIndex(of: .group(g)) { cursor = header }
         case nil: break
         }
     }
 
-    /// All checked → none, otherwise → all.
+    /// All checked → none, otherwise → all. While searching, only the matching items:
+    /// what you can't see never changes.
     private mutating func toggleGroup(_ g: Int) {
-        let check = groups[g].state != .all
-        for i in groups[g].items.indices { groups[g].items[i].checked = check }
+        let shown = matches(in: g)
+        let check = !shown.allSatisfy { groups[g].items[$0].checked }
+        for i in shown { groups[g].items[i].checked = check }
     }
 }
 
