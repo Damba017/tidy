@@ -84,6 +84,7 @@ Accepts **multiple names** (`tidy uninstall discord firefox fastfetch cava`). Wi
 - First a "Found N" summary: name, full path, source per target. Ambiguous names get a pick-one prompt each; names with no match are reported and skipped.
 - One combined "quit running apps?" prompt for all running targets.
 - One combined review list, **grouped per app** (collapsible, with per-app totals; groups needing sudo are labelled). Each group header has its own checkbox: toggling it selects/deselects all items in that group; it shows `[x]` when all are selected, `[ ]` when none, `[~]` when some. Individual items stay toggleable. Then **one** `y/N` for everything that can go to the Trash without root.
+- **Fuzzy matches are never removed on that same y.** Ticked fuzzy items get their own block in the plan ("Fuzzy matches, asked separately") and their own single `y/N`: one y takes all of them, N keeps all of them. Ticked fuzzy items that need root join the sudo prompt only after that y.
 - Then **one** sudo prompt for all root-owned items across all targets (e.g. App Store `.app` bundles).
 - Then the brew flow (step 6) **per brew package**, each with its own two questions.
 - Answering N anywhere skips only that part; the rest continues. End with a short summary (total moved, log path).
@@ -106,7 +107,9 @@ For each name:
    - `/Library/Application Support`, `/Library/Caches`, `/Library/Preferences`, `/Library/LaunchAgents`, `/Library/LaunchDaemons`, `/Library/PrivilegedHelperTools`
    - `/private/var/db/receipts` (pkg receipts — read `pkgutil --pkgs` / `--files` read-only to find pkg-installed files)
    Mark each match with how it matched: **bundle ID** (exact bundle ID, or bundle ID + suffix like `com.hnc.Discord.ShipIt`), **name** (a path component equals the app/executable name, case-insensitive — e.g. `Application Support/discord`), or **fuzzy** (name only appears as a substring — e.g. `BetterDiscord`). Bundle ID and name matches are checked by default; fuzzy ones are unchecked.
-5. Show the list with sizes, let him toggle items, then one final `y/N`.
+5. Show the list with sizes, let him toggle items, then one final `y/N` (plus the separate fuzzy `y/N` above, if he ticked any).
+   - A path to a `.app` (e.g. `~/Downloads/Foo.app`) is accepted as a name and used as is.
+   - Leftovers macOS privacy protection keeps tidy out of (EPERM, not root-owned) are not offered; they're listed afterwards with the Full Disk Access hint. sudo doesn't help there.
 6. **For brew packages** the flow is exactly:
    ```
    $ tidy uninstall fastfetch

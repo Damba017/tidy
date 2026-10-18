@@ -14,22 +14,29 @@ public struct RemovalPlan: Sendable {
         public let path: String
         public let size: Int64
         public let status: Status
+        /// Matched only because its name looks like the app's: shown and asked about separately.
+        public internal(set) var isFuzzy = false
     }
 
     public let items: [Item]
     let home: String
 
-    public init(paths: [String]) {
-        self.init(paths: paths, home: Paths.home)
+    /// `fuzzy`: the paths among `paths` that only matched by name. They get their own block in the
+    /// plan and their own question, so they never go along on the same "y" as the sure matches.
+    public init(paths: [String], fuzzy: [String] = []) {
+        self.init(paths: paths, fuzzy: fuzzy, home: Paths.home)
     }
 
-    init(paths: [String], home: String) {
+    init(paths: [String], fuzzy: [String] = [], home: String) {
+        let fuzzy = Set(fuzzy.map(Paths.normalize))
         var seen = Set<String>()
         var items: [Item] = []
         for raw in paths {
             let path = Paths.normalize(raw)
             guard seen.insert(path).inserted else { continue }
-            items.append(Self.classify(path, home: home))
+            var item = Self.classify(path, home: home)
+            item.isFuzzy = fuzzy.contains(path)
+            items.append(item)
         }
         // Anything inside a folder that's being removed goes along with that folder.
         let removing = Set(items.filter { $0.status == .trash || $0.status == .sudo }.map(\.path))
@@ -53,15 +60,27 @@ public struct RemovalPlan: Sendable {
         items.filter { $0.status == status }
     }
 
-    /// Every item with its full location, grouped by what will happen to it.
+    /// First question: sure matches that can go to the Trash without root.
+    var sure: [Item] { items.filter { $0.status == .trash && !$0.isFuzzy } }
+    /// Second question: fuzzy matches, with or without root.
+    var fuzzy: [Item] { items.filter { $0.isFuzzy && ($0.status == .trash || $0.status == .sudo) } }
+    /// Third question: sure matches that need root.
+    var root: [Item] { items.filter { $0.status == .sudo && !$0.isFuzzy } }
+
+    /// Every item with its full location, grouped by what will happen to it, in the order of the questions.
     public func render() -> [String] {
         var lines: [String] = []
         let blocked = items.filter { if case .blocked = $0.status { true } else { false } }
-        for (title, group) in [("Move to the Trash", items(.trash)), ("Needs administrator rights (sudo)", items(.sudo))]
-        where !group.isEmpty {
+        let groups = [
+            ("Move to the Trash", sure),
+            ("Fuzzy matches, asked separately (only the name looks alike)", fuzzy),
+            ("Needs administrator rights (sudo)", root),
+        ]
+        for (title, group) in groups where !group.isEmpty {
             lines.append("\(title): \(Self.describe(group))")
             lines += group.map { item in
-                let note = Launchctl.domain(of: item.path) == nil ? "" : "  (stops its launchd job first)"
+                var note = Launchctl.domain(of: item.path) == nil ? "" : "  (stops its launchd job first)"
+                if item.isFuzzy && item.status == .sudo { note += "  (needs sudo)" }
                 return "  " + Self.pad(Size.format(item.size)) + "  " + Paths.display(item.path) + note
             }
             lines.append("")

@@ -100,8 +100,11 @@ func runUninstall(names: [String], dryRun: Bool) -> Int32 {
         return 0
     }
 
+    // Ticked fuzzy matches get their own block and question in the plan.
+    let fuzzyLabel = Leftover.Match.fuzzy.label
+    let fuzzy = list.groups.flatMap { $0.items.filter { $0.label == fuzzyLabel }.map(\.path) }
     print("")
-    let result = Remover.run(RemovalPlan(paths: selected), dryRun: dryRun, say: { print($0) }, ask: ask)
+    let result = Remover.run(RemovalPlan(paths: selected, fuzzy: fuzzy), dryRun: dryRun, say: { print($0) }, ask: ask)
     return result.failed > 0 ? 1 : 0
 }
 

@@ -35,10 +35,11 @@ public enum Remover {
         trashItem: (String) throws -> String
     ) -> RemovalResult {
         plan.render().forEach(say)
-        let normal = plan.items(.trash)
-        let root = plan.items(.sudo)
+        let sure = plan.sure
+        let fuzzy = plan.fuzzy
+        var root = plan.root
         var result = RemovalResult()
-        if normal.isEmpty && root.isEmpty {
+        if sure.isEmpty && fuzzy.isEmpty && root.isEmpty {
             say("Nothing to remove.")
             return result
         }
@@ -66,26 +67,53 @@ public enum Remover {
             record { try log.failed(item.path, error: error, sudo: sudo) }
         }
 
-        if !normal.isEmpty {
-            if ask("Move \(RemovalPlan.describe(normal)) to the Trash?") {
-                for item in normal {
-                    // Stop a launch agent before its plist goes, but never for a path the Trash would refuse.
-                    if Launchctl.domain(of: item.path) == .user, Denylist.reason(for: item.path, home: plan.home) == nil {
-                        _ = launchctl(Launchctl.bootout(item.path, in: .user))
-                    }
-                    do {
-                        moved(item, to: try Trash.move(item.path, home: plan.home, using: trashItem), sudo: false)
-                    } catch {
-                        failed(item, "\(error)", sudo: false)
-                    }
+        func moveToTrash(_ items: [RemovalPlan.Item]) {
+            for item in items {
+                // Stop a launch agent before its plist goes, but never for a path the Trash would refuse.
+                if Launchctl.domain(of: item.path) == .user, Denylist.reason(for: item.path, home: plan.home) == nil {
+                    _ = launchctl(Launchctl.bootout(item.path, in: .user))
                 }
+                do {
+                    moved(item, to: try Trash.move(item.path, home: plan.home, using: trashItem), sudo: false)
+                } catch {
+                    failed(item, "\(error)", sudo: false)
+                }
+            }
+        }
+        var askedBefore = false
+
+        if !sure.isEmpty {
+            askedBefore = true
+            if ask("Move \(RemovalPlan.describe(sure)) to the Trash?") {
+                moveToTrash(sure)
             } else {
                 say("Nothing moved to the Trash.")
             }
         }
 
+        // Fuzzy matches never go along on the same "y" as the sure ones.
+        if !fuzzy.isEmpty {
+            if askedBefore {
+                // Show them again right before the question; the list above may have scrolled away.
+                say("")
+                say("Fuzzy matches (only the name looks alike): \(RemovalPlan.describe(fuzzy))")
+                fuzzy.forEach { say("  " + Paths.display($0.path)) }
+            }
+            askedBefore = true
+            let size = Size.format(fuzzy.reduce(0) { $0 + $1.size })
+            let question = fuzzy.count == 1
+                ? "Also move this fuzzy match (\(size)) to the Trash?"
+                : "Also move these \(fuzzy.count) fuzzy matches (\(size)) to the Trash?"
+            if ask(question) {
+                moveToTrash(fuzzy.filter { $0.status == .trash })
+                root += fuzzy.filter { $0.status == .sudo }  // they still get the sudo question below
+            } else {
+                say("Kept the fuzzy matches.")
+            }
+        }
+
         if !root.isEmpty {
-            if !normal.isEmpty {
+            if askedBefore {
                 // Show them again right before the question; the list above may have scrolled away.
                 say("")
                 say("Needs administrator rights (sudo): \(RemovalPlan.describe(root))")

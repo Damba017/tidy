@@ -11,6 +11,8 @@ final class Transcript {
     /// launchctl and sudo calls in the order they happened.
     var events: [String] = []
     var answer = false
+    /// Answers per question, in order; once used up, `answer` is given.
+    var answers: [Bool] = []
     var sudoStatus: Int32 = 0
 
     func say(_ line: String) { lines.append(line) }
@@ -18,7 +20,7 @@ final class Transcript {
     func ask(_ question: String) -> Bool {
         questions.append(question)
         lines.append("? " + question)
-        return answer
+        return answers.isEmpty ? answer : answers.removeFirst()
     }
 
     /// Stands in for sudo: records the command and runs nothing.
@@ -232,6 +234,78 @@ func run(_ plan: RemovalPlan, in fx: Fixture, _ t: Transcript, dryRun: Bool = fa
     #expect(t.sudoCalls == [["-v"]])
     #expect(result.failed == 1)
     #expect(Paths.exists(keychains))
+}
+
+@Test func fuzzyMatchesGetTheirOwnBlockAndQuestion() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let sure = try fx.file("home/Library/Caches/com.example.app")
+    let fuzzy = try fx.file("home/Library/Application Support/My Example Project")
+    let t = Transcript()
+    t.answers = [true, false]  // yes to the sure match, no to the fuzzy one
+
+    let plan = RemovalPlan(paths: [sure, fuzzy], fuzzy: [fuzzy], home: fx.home)
+    let result = run(plan, in: fx, t)
+
+    let text = plan.render().joined(separator: "\n")
+    #expect(text.contains("Move to the Trash: 1 item"))
+    #expect(text.contains("Fuzzy matches, asked separately (only the name looks alike): 1 item"))
+    #expect(t.questions.count == 2)
+    #expect(t.questions[0].hasPrefix("Move 1 item"))
+    #expect(t.questions[1].hasPrefix("Also move this fuzzy match"))
+    #expect(result.moved == 1)
+    #expect(!Paths.exists(sure))
+    #expect(Paths.exists(fuzzy))
+}
+
+@Test func oneYesTakesAllFuzzyMatches() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let sure = try fx.file("home/sure")
+    let fuzzyA = try fx.file("home/fuzzy-a")
+    let fuzzyB = try fx.file("home/fuzzy-b")
+    let t = Transcript()
+    t.answers = [false, true]  // no to the sure match, yes to all fuzzy ones
+
+    let result = run(RemovalPlan(paths: [sure, fuzzyA, fuzzyB], fuzzy: [fuzzyA, fuzzyB], home: fx.home), in: fx, t)
+
+    #expect(t.questions[1].hasPrefix("Also move these 2 fuzzy matches"))
+    #expect(result.moved == 2)
+    #expect(Paths.exists(sure))
+    #expect(!Paths.exists(fuzzyA) && !Paths.exists(fuzzyB))
+}
+
+@Test func fuzzyMatchesNeedingSudoOnlyReachSudoWhenApproved() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let path = try fx.file("home/root-owned-lookalike")
+    try fx.folder("home/.Trash")
+    let item = RemovalPlan.Item(path: path, size: 10, status: .sudo, isFuzzy: true)
+
+    let no = Transcript()
+    _ = run(RemovalPlan(items: [item], home: fx.home), in: fx, no)
+    #expect(no.questions.count == 1)  // only the fuzzy question
+    #expect(no.sudoCalls.isEmpty)
+
+    let yes = Transcript()
+    yes.answers = [true, true]
+    _ = run(RemovalPlan(items: [item], home: fx.home), in: fx, yes)
+    #expect(yes.questions.count == 2)
+    #expect(yes.questions[1].contains("administrator rights"))
+    #expect(yes.sudoCalls.first == ["-v"])
+}
+
+@Test func dryRunShowsTheFuzzyBlockWithoutAsking() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let fuzzy = try fx.file("home/lookalike")
+    let t = Transcript()
+
+    _ = run(RemovalPlan(paths: [fuzzy], fuzzy: [fuzzy], home: fx.home), in: fx, t, dryRun: true)
+
+    #expect(t.questions.isEmpty)
+    #expect(t.lines.contains { $0.hasPrefix("Fuzzy matches, asked separately") })
+    #expect(Paths.exists(fuzzy))
 }
 
 @Test func launchAgentIsStoppedBeforeItsPlistMoves() throws {
