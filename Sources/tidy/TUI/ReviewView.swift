@@ -2,28 +2,31 @@ import Foundation
 import TidyCore
 
 /// Shows a ReviewList and lets the user tick items. The checked paths on Enter, nil on cancel.
+/// `note` is an extra line above the footer, e.g. what comes after this list.
 /// Shared by `uninstall` and `junk`; call between Terminal.start() and Terminal.stop().
-func review(_ list: ReviewList, title: String, dryRun: Bool) -> [String]? {
+func review(_ list: ReviewList, title: String, dryRun: Bool, note: String? = nil) -> [String]? {
     var list = list
     var top = 0
     while true {
         let (height, width) = Terminal.size()
         let w = max(20, width - 1)
+        let footer = note == nil ? 3 : 4
         var lines = [
             fit("tidy \(title)  review what goes" + (dryRun ? "   [dry-run]" : ""), w),
             fit("\(list.selectedPaths.count) selected · \(Size.format(list.selectedSize))", w),
             String(repeating: "─", count: w),
         ]
         let rows = list.rows
-        let listHeight = max(1, height - lines.count - 3)
+        let listHeight = max(1, height - lines.count - footer)
         if list.cursor < top { top = list.cursor }
         if list.cursor >= top + listHeight { top = list.cursor - listHeight + 1 }
         for index in rows.indices.dropFirst(top).prefix(listHeight) {
             let line = fit(text(of: rows[index], in: list), w)
             lines.append(index == list.cursor ? reverseVideo + line + resetStyle : line)
         }
-        while lines.count < height - 3 { lines.append("") }
+        while lines.count < height - footer { lines.append("") }
         lines.append(String(repeating: "─", count: w))
+        if let note { lines.append(fit(note, w)) }
         lines.append(fit("Nothing is removed yet: after Enter you see the full list and get a (y/N).", w))
         lines.append(fit("↑↓ move · space toggle · → expand · ← collapse · a all in group · enter continue · q cancel", w))
         Terminal.draw(lines)

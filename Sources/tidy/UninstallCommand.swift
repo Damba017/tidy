@@ -73,8 +73,15 @@ func runUninstall(names: [String], dryRun: Bool) -> Int32 {
 
     var ok = true
     let apps = targets.filter { $0.package == nil }.compactMap(\.app)
-    if !apps.isEmpty { ok = uninstallApps(apps, dryRun: dryRun, interactive: interactive) }
-    for candidate in targets where candidate.package != nil {
+    let viaBrew = targets.filter { $0.package != nil }
+    if !apps.isEmpty {
+        // Brew packages aren't in the review list (brew removes them, not tidy), so say they come next.
+        let note = viaBrew.isEmpty ? nil
+            : "After this list: " + viaBrew.map { "\($0.name) (\($0.source.rawValue))" }.joined(separator: ", ")
+                + ", via brew with " + (viaBrew.count == 1 ? "its" : "their") + " own questions."
+        ok = uninstallApps(apps, dryRun: dryRun, interactive: interactive, note: note)
+    }
+    for candidate in viaBrew {
         print("")
         _ = BrewFlow.run(candidate, dryRun: dryRun, say: { print($0) }, ask: ask)
     }
@@ -83,7 +90,7 @@ func runUninstall(names: [String], dryRun: Bool) -> Int32 {
 
 /// The .app part: one review list for all apps and their leftovers, then the safety core.
 /// False if something failed to move.
-private func uninstallApps(_ apps: [App], dryRun: Bool, interactive: Bool) -> Bool {
+private func uninstallApps(_ apps: [App], dryRun: Bool, interactive: Bool, note: String?) -> Bool {
     print("Looking for leftovers…")
     let found = apps.map(group(for:))
     let list = ReviewList(groups: found.map(\.group))
@@ -91,7 +98,7 @@ private func uninstallApps(_ apps: [App], dryRun: Bool, interactive: Bool) -> Bo
     let selected: [String]
     if interactive {
         Terminal.start()
-        let result = review(list, title: "uninstall", dryRun: dryRun)
+        let result = review(list, title: "uninstall", dryRun: dryRun, note: note)
         Terminal.stop()
         guard let result else {
             print("Cancelled; no apps were changed.")
@@ -100,6 +107,7 @@ private func uninstallApps(_ apps: [App], dryRun: Bool, interactive: Bool) -> Bo
         selected = result
     } else {
         printPlain(list)
+        if let note { print(note) }
         selected = list.selectedPaths
     }
     if !privacyProtected.isEmpty {
