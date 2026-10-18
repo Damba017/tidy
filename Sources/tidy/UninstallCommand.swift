@@ -83,7 +83,7 @@ func runUninstall(names: [String], dryRun: Bool) -> Int32 {
     }
     for candidate in viaBrew {
         print("")
-        _ = BrewFlow.run(candidate, dryRun: dryRun, say: { print($0) }, ask: ask)
+        _ = BrewFlow.run(candidate, dryRun: dryRun, say: { print($0) }, ask: ask, choose: choose)
     }
     return ok ? 0 : 1
 }
@@ -126,7 +126,8 @@ private func uninstallApps(_ apps: [App], dryRun: Bool, interactive: Bool, note:
     let fuzzyLabel = Leftover.Match.fuzzy.label
     let fuzzy = list.groups.flatMap { $0.items.filter { $0.label == fuzzyLabel }.map(\.path) }
     print("")
-    let result = Remover.run(RemovalPlan(paths: selected, fuzzy: fuzzy), dryRun: dryRun, say: { print($0) }, ask: ask)
+    let result = Remover.run(RemovalPlan(paths: selected, doubtful: .fuzzy(fuzzy)), dryRun: dryRun,
+                             say: { print($0) }, ask: ask, choose: choose)
     return result.failed == 0
 }
 

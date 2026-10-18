@@ -112,7 +112,7 @@ private func flow(_ candidate: Candidate, in fx: Fixture, _ t: Transcript, _ bre
     BrewFlow.run(
         candidate, dryRun: dryRun, say: t.say, ask: t.ask, home: fx.home, query: brew.query, brew: brew.run,
         remove: { plan in
-            _ = Remover.run(plan, dryRun: dryRun, say: t.say, ask: t.ask, log: fx.log, sudo: t.sudo,
+            _ = Remover.run(plan, dryRun: dryRun, say: t.say, ask: t.ask, choose: t.choose, log: fx.log, sudo: t.sudo,
                             launchctl: t.launchctl, trashItem: fx.trash)
         })
 }

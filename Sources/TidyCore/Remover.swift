@@ -8,18 +8,29 @@ public struct RemovalResult: Sendable {
 
 /// The only way tidy removes anything: show the whole plan, ask, then move to the Trash.
 public enum Remover {
-    /// Prints the full `plan` with `say` (what, from where, how big), then asks with `ask`:
-    /// once for everything that can go to the Trash, once for everything that needs sudo.
-    /// `ask` gets the question without "(y/N)" and returns true only for an explicit yes.
+    /// The answer to the question about the doubtful items.
+    public enum Choice: Sendable {
+        case all
+        case oneByOne
+        case none
+    }
+
+    /// Prints the full `plan` with `say` (what, from where, how big), then asks:
+    /// - `ask` (y/N) once for the sure items that can go to the Trash;
+    /// - `choose` (all / one by one / none) for the doubtful items; after an N on one of them,
+    ///   `choose` comes back for the ones that are left;
+    /// - `ask` (y/N) once for everything that needs sudo.
+    /// `ask` returns true only for an explicit yes; `choose` returns `.none` for anything unclear.
     /// With `dryRun` it prints the plan and stops: no questions, no changes, no log.
     public static func run(
         _ plan: RemovalPlan,
         dryRun: Bool,
         say: (String) -> Void,
-        ask: (String) -> Bool
+        ask: (String) -> Bool,
+        choose: (String) -> Choice
     ) -> RemovalResult {
-        run(plan, dryRun: dryRun, say: say, ask: ask, log: .standard, sudo: Sudo.run, launchctl: Launchctl.run,
-            trashItem: Trash.system)
+        run(plan, dryRun: dryRun, say: say, ask: ask, choose: choose, log: .standard, sudo: Sudo.run,
+            launchctl: Launchctl.run, trashItem: Trash.system)
     }
 
     /// Same, with the log, sudo, launchctl and the final Trash move passed in. No defaults on purpose:
@@ -29,6 +40,7 @@ public enum Remover {
         dryRun: Bool,
         say: (String) -> Void,
         ask: (String) -> Bool,
+        choose: (String) -> Choice,
         log: Log,
         sudo: ([String]) -> Int32,
         launchctl: ([String]) -> Int32,
@@ -36,10 +48,10 @@ public enum Remover {
     ) -> RemovalResult {
         plan.render().forEach(say)
         let sure = plan.sure
-        let fuzzy = plan.fuzzy
+        let doubtful = plan.doubtful
         var root = plan.root
         var result = RemovalResult()
-        if sure.isEmpty && fuzzy.isEmpty && root.isEmpty {
+        if sure.isEmpty && doubtful.isEmpty && root.isEmpty {
             say("Nothing to remove.")
             return result
         }
@@ -91,25 +103,40 @@ public enum Remover {
             }
         }
 
-        // Fuzzy matches never go along on the same "y" as the sure ones.
-        if !fuzzy.isEmpty {
+        // Doubtful items never go along on the same "y" as the sure ones.
+        if !doubtful.isEmpty {
             if askedBefore {
                 // Show them again right before the question; the list above may have scrolled away.
                 say("")
-                say("Fuzzy matches (only the name looks alike): \(RemovalPlan.describe(fuzzy))")
-                fuzzy.forEach { say("  " + Paths.display($0.path)) }
+                say("Asked separately: \(plan.doubtfulCount(doubtful.count))")
+                doubtful.forEach { say("  " + Paths.display($0.path) + ($0.note.map { "  (\($0))" } ?? "")) }
             }
             askedBefore = true
-            let size = Size.format(fuzzy.reduce(0) { $0 + $1.size })
-            let question = fuzzy.count == 1
-                ? "Also move this fuzzy match (\(size)) to the Trash?"
-                : "Also move these \(fuzzy.count) fuzzy matches (\(size)) to the Trash?"
-            if ask(question) {
-                moveToTrash(fuzzy.filter { $0.status == .trash })
-                root += fuzzy.filter { $0.status == .sudo }  // they still get the sudo question below
-            } else {
-                say("Kept the fuzzy matches.")
+            var remaining = doubtful
+            var approved: [RemovalPlan.Item] = []
+            while !remaining.isEmpty {
+                let size = Size.format(remaining.reduce(0) { $0 + $1.size })
+                let which = remaining.count != doubtful.count ? "the remaining " : remaining.count > 1 ? "all " : ""
+                switch choose("Move \(which)\(plan.doubtfulCount(remaining.count)) (\(size)) to the Trash?") {
+                case .all:
+                    approved += remaining
+                    remaining = []
+                case .none:
+                    say("Kept \(plan.doubtfulCount(remaining.count)).")
+                    remaining = []
+                case .oneByOne:
+                    // One at a time; an N keeps that one and goes back to the question above for the rest.
+                    while let item = remaining.first {
+                        remaining.removeFirst()
+                        let extra = [Size.format(item.size), item.note, item.status == .sudo ? "needs sudo" : nil]
+                            .compactMap { $0 }.joined(separator: ", ")
+                        guard ask("Move \(Paths.display(item.path)) (\(extra)) to the Trash?") else { break }
+                        approved.append(item)
+                    }
+                }
             }
+            moveToTrash(approved.filter { $0.status == .trash })
+            root += approved.filter { $0.status == .sudo }  // they still get the sudo question below
         }
 
         if !root.isEmpty {

@@ -14,28 +14,53 @@ public struct RemovalPlan: Sendable {
         public let path: String
         public let size: Int64
         public let status: Status
-        /// Matched only because its name looks like the app's: shown and asked about separately.
-        public internal(set) var isFuzzy = false
+        /// Only a guess (a fuzzy match, an orphan): shown and asked about separately.
+        public internal(set) var isDoubtful = false
+        /// Shown next to a doubtful item, e.g. "high confidence".
+        public internal(set) var note: String?
+    }
+
+    /// The items that are only a guess, and how to talk about them.
+    public struct Doubtful: Sendable {
+        public let paths: [String]
+        let one: String
+        let many: String
+        let why: String
+        let notes: [String: String]
+
+        /// Uninstall leftovers that only matched because their name looks like the app's.
+        public static func fuzzy(_ paths: [String]) -> Doubtful {
+            Doubtful(paths: paths, one: "fuzzy match", many: "fuzzy matches", why: "only the name looks alike", notes: [:])
+        }
+
+        /// Library items no installed app claims; `notes` holds each one's confidence.
+        public static func orphans(_ notes: [String: String]) -> Doubtful {
+            Doubtful(paths: Array(notes.keys), one: "orphan", many: "orphans", why: "no installed app claims them",
+                     notes: notes)
+        }
     }
 
     public let items: [Item]
     let home: String
+    let doubt: Doubtful?
 
-    /// `fuzzy`: the paths among `paths` that only matched by name. They get their own block in the
-    /// plan and their own question, so they never go along on the same "y" as the sure matches.
-    public init(paths: [String], fuzzy: [String] = []) {
-        self.init(paths: paths, fuzzy: fuzzy, home: Paths.home)
+    /// `doubtful`: the paths among `paths` that are only a guess. They get their own block in the plan
+    /// and their own question, so they never go along on the same "y" as the sure ones.
+    public init(paths: [String], doubtful: Doubtful? = nil) {
+        self.init(paths: paths, doubtful: doubtful, home: Paths.home)
     }
 
-    init(paths: [String], fuzzy: [String] = [], home: String) {
-        let fuzzy = Set(fuzzy.map(Paths.normalize))
+    init(paths: [String], doubtful: Doubtful? = nil, home: String) {
+        let notes = Dictionary((doubtful?.notes ?? [:]).map { (Paths.normalize($0.key), $0.value) }, uniquingKeysWith: { a, _ in a })
+        let guesses = Set((doubtful?.paths ?? []).map(Paths.normalize))
         var seen = Set<String>()
         var items: [Item] = []
         for raw in paths {
             let path = Paths.normalize(raw)
             guard seen.insert(path).inserted else { continue }
             var item = Self.classify(path, home: home)
-            item.isFuzzy = fuzzy.contains(path)
+            item.isDoubtful = guesses.contains(path)
+            item.note = notes[path]
             items.append(item)
         }
         // Anything inside a folder that's being removed goes along with that folder.
@@ -48,39 +73,48 @@ public struct RemovalPlan: Sendable {
             }
             return false
         }
-        self.init(items: items, home: home)
+        self.init(items: items, home: home, doubt: doubtful)
     }
 
-    init(items: [Item], home: String) {
+    init(items: [Item], home: String, doubt: Doubtful? = nil) {
         self.items = items
         self.home = home
+        self.doubt = doubt
     }
 
     public func items(_ status: Status) -> [Item] {
         items.filter { $0.status == status }
     }
 
-    /// First question: sure matches that can go to the Trash without root.
-    var sure: [Item] { items.filter { $0.status == .trash && !$0.isFuzzy } }
-    /// Second question: fuzzy matches, with or without root.
-    var fuzzy: [Item] { items.filter { $0.isFuzzy && ($0.status == .trash || $0.status == .sudo) } }
-    /// Third question: sure matches that need root.
-    var root: [Item] { items.filter { $0.status == .sudo && !$0.isFuzzy } }
+    /// First question: sure items that can go to the Trash without root.
+    var sure: [Item] { items.filter { $0.status == .trash && !$0.isDoubtful } }
+    /// Second question: the doubtful items, with or without root.
+    var doubtful: [Item] { items.filter { $0.isDoubtful && ($0.status == .trash || $0.status == .sudo) } }
+    /// Third question: sure items that need root.
+    var root: [Item] { items.filter { $0.status == .sudo && !$0.isDoubtful } }
+
+    /// "fuzzy match" / "2 fuzzy matches"
+    func doubtfulCount(_ n: Int) -> String {
+        let doubt = doubt ?? .fuzzy([])
+        return n == 1 ? "1 \(doubt.one)" : "\(n) \(doubt.many)"
+    }
 
     /// Every item with its full location, grouped by what will happen to it, in the order of the questions.
     public func render() -> [String] {
         var lines: [String] = []
         let blocked = items.filter { if case .blocked = $0.status { true } else { false } }
+        let doubt = doubt ?? .fuzzy([])
         let groups = [
             ("Move to the Trash", sure),
-            ("Fuzzy matches, asked separately (only the name looks alike)", fuzzy),
+            (doubt.many.prefix(1).uppercased() + doubt.many.dropFirst() + ", asked separately (\(doubt.why))", doubtful),
             ("Needs administrator rights (sudo)", root),
         ]
         for (title, group) in groups where !group.isEmpty {
             lines.append("\(title): \(Self.describe(group))")
             lines += group.map { item in
                 var note = Launchctl.domain(of: item.path) == nil ? "" : "  (stops its launchd job first)"
-                if item.isFuzzy && item.status == .sudo { note += "  (needs sudo)" }
+                if item.isDoubtful && item.status == .sudo { note += "  (needs sudo)" }
+                if let extra = item.note { note += "  (\(extra))" }
                 return "  " + Self.pad(Size.format(item.size)) + "  " + Paths.display(item.path) + note
             }
             lines.append("")

@@ -259,7 +259,7 @@ private final class DiskBrowser {
         let path = path(of: row)
         Terminal.stop()
         print("")
-        _ = Remover.run(RemovalPlan(paths: [path]), dryRun: dryRun, say: { print($0) }, ask: ask)
+        _ = Remover.run(RemovalPlan(paths: [path]), dryRun: dryRun, say: { print($0) }, ask: ask, choose: choose)
         print("")
         print("Press Enter to go back to tidy disk. ", terminator: "")
         fflush(stdout)

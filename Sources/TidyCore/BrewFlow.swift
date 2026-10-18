@@ -4,9 +4,15 @@ import Foundation
 /// `brew uninstall` (brew owns that step), then the leftovers through the safety core.
 public enum BrewFlow {
     /// True when the package was uninstalled, or would be in a dry run.
-    public static func run(_ candidate: Candidate, dryRun: Bool, say: (String) -> Void, ask: (String) -> Bool) -> Bool {
+    public static func run(
+        _ candidate: Candidate,
+        dryRun: Bool,
+        say: (String) -> Void,
+        ask: (String) -> Bool,
+        choose: (String) -> Remover.Choice
+    ) -> Bool {
         run(candidate, dryRun: dryRun, say: say, ask: ask, home: Paths.home, query: Brew.query, brew: Brew.run,
-            remove: { plan in _ = Remover.run(plan, dryRun: dryRun, say: say, ask: ask) })
+            remove: { plan in _ = Remover.run(plan, dryRun: dryRun, say: say, ask: ask, choose: choose) })
     }
 
     /// Same, with brew and the removal passed in. No defaults on purpose: tests must name their fakes.
@@ -62,7 +68,8 @@ public enum BrewFlow {
         }
         say("")
         say("Leftovers of \(package.name):")
-        remove(RemovalPlan(paths: leftovers.map(\.path), fuzzy: leftovers.filter { $0.match == .fuzzy }.map(\.path), home: home))
+        let fuzzy = leftovers.filter { $0.match == .fuzzy }.map(\.path)
+        remove(RemovalPlan(paths: leftovers.map(\.path), doubtful: .fuzzy(fuzzy), home: home))
         return true
     }
 }

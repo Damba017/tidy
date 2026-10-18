@@ -13,6 +13,8 @@ final class Transcript {
     var answer = false
     /// Answers per question, in order; once used up, `answer` is given.
     var answers: [Bool] = []
+    /// Answers to the all / one by one / none question, in order; once used up, `.none`.
+    var choices: [Remover.Choice] = []
     var sudoStatus: Int32 = 0
 
     func say(_ line: String) { lines.append(line) }
@@ -21,6 +23,12 @@ final class Transcript {
         questions.append(question)
         lines.append("? " + question)
         return answers.isEmpty ? answer : answers.removeFirst()
+    }
+
+    func choose(_ question: String) -> Remover.Choice {
+        questions.append(question)
+        lines.append("?? " + question)
+        return choices.isEmpty ? .none : choices.removeFirst()
     }
 
     /// Stands in for sudo: records the command and runs nothing.
@@ -41,7 +49,7 @@ final class Transcript {
 /// Runs the remover inside a fixture: fake Trash, fake sudo, fake launchctl, log in the fixture.
 func run(_ plan: RemovalPlan, in fx: Fixture, _ t: Transcript, dryRun: Bool = false) -> RemovalResult {
     Remover.run(
-        plan, dryRun: dryRun, say: t.say, ask: t.ask, log: fx.log, sudo: t.sudo, launchctl: t.launchctl,
+        plan, dryRun: dryRun, say: t.say, ask: t.ask, choose: t.choose, log: fx.log, sudo: t.sudo, launchctl: t.launchctl,
         trashItem: { path in
             t.events.append("trash " + path)
             return try fx.trash(path)
@@ -242,9 +250,9 @@ func run(_ plan: RemovalPlan, in fx: Fixture, _ t: Transcript, dryRun: Bool = fa
     let sure = try fx.file("home/Library/Caches/com.example.app")
     let fuzzy = try fx.file("home/Library/Application Support/My Example Project")
     let t = Transcript()
-    t.answers = [true, false]  // yes to the sure match, no to the fuzzy one
+    t.answers = [true]  // yes to the sure match; the fuzzy question gets the default: none
 
-    let plan = RemovalPlan(paths: [sure, fuzzy], fuzzy: [fuzzy], home: fx.home)
+    let plan = RemovalPlan(paths: [sure, fuzzy], doubtful: .fuzzy([fuzzy]), home: fx.home)
     let result = run(plan, in: fx, t)
 
     let text = plan.render().joined(separator: "\n")
@@ -252,7 +260,7 @@ func run(_ plan: RemovalPlan, in fx: Fixture, _ t: Transcript, dryRun: Bool = fa
     #expect(text.contains("Fuzzy matches, asked separately (only the name looks alike): 1 item"))
     #expect(t.questions.count == 2)
     #expect(t.questions[0].hasPrefix("Move 1 item"))
-    #expect(t.questions[1].hasPrefix("Also move this fuzzy match"))
+    #expect(t.questions[1].hasPrefix("Move 1 fuzzy match"))
     #expect(result.moved == 1)
     #expect(!Paths.exists(sure))
     #expect(Paths.exists(fuzzy))
@@ -265,14 +273,68 @@ func run(_ plan: RemovalPlan, in fx: Fixture, _ t: Transcript, dryRun: Bool = fa
     let fuzzyA = try fx.file("home/fuzzy-a")
     let fuzzyB = try fx.file("home/fuzzy-b")
     let t = Transcript()
-    t.answers = [false, true]  // no to the sure match, yes to all fuzzy ones
+    t.answers = [false]  // no to the sure match
+    t.choices = [.all]   // y: all fuzzy ones
 
-    let result = run(RemovalPlan(paths: [sure, fuzzyA, fuzzyB], fuzzy: [fuzzyA, fuzzyB], home: fx.home), in: fx, t)
+    let plan = RemovalPlan(paths: [sure, fuzzyA, fuzzyB], doubtful: .fuzzy([fuzzyA, fuzzyB]), home: fx.home)
+    let result = run(plan, in: fx, t)
 
-    #expect(t.questions[1].hasPrefix("Also move these 2 fuzzy matches"))
+    #expect(t.questions[1].hasPrefix("Move all 2 fuzzy matches"))
     #expect(result.moved == 2)
     #expect(Paths.exists(sure))
     #expect(!Paths.exists(fuzzyA) && !Paths.exists(fuzzyB))
+}
+
+@Test func oneByOneThenNoGoesBackToTheQuestionForTheRest() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let a = try fx.file("home/orphan-a")
+    let b = try fx.file("home/orphan-b")
+    let c = try fx.file("home/orphan-c")
+    let t = Transcript()
+    t.choices = [.oneByOne, .oneByOne]
+    t.answers = [true, false, true]  // a: yes, b: no (back to the question), then c: yes
+
+    let notes = [a: "high confidence", b: "low confidence", c: "high confidence"]
+    let result = run(RemovalPlan(paths: [a, b, c], doubtful: .orphans(notes), home: fx.home), in: fx, t)
+
+    #expect(t.questions.count == 5)
+    #expect(t.questions[0].hasPrefix("Move all 3 orphans"))
+    #expect(t.questions[1].contains("orphan-a") && t.questions[1].contains("high confidence"))
+    #expect(t.questions[2].contains("orphan-b") && t.questions[2].contains("low confidence"))
+    #expect(t.questions[3].hasPrefix("Move the remaining 1 orphan"))
+    #expect(t.questions[4].contains("orphan-c"))
+    #expect(result.moved == 2)
+    #expect(!Paths.exists(a) && Paths.exists(b) && !Paths.exists(c))
+}
+
+@Test func oneByOneThenNoneKeepsTheRest() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let a = try fx.file("home/orphan-a")
+    let b = try fx.file("home/orphan-b")
+    let c = try fx.file("home/orphan-c")
+    let t = Transcript()
+    t.choices = [.oneByOne, .none]
+    t.answers = [true, false]  // a: yes, b: no → back to the question → Enter: none of the rest
+
+    let result = run(RemovalPlan(paths: [a, b, c], doubtful: .orphans([a: "high", b: "high", c: "high"]),
+                                 home: fx.home), in: fx, t)
+
+    #expect(t.questions.count == 4)
+    #expect(result.moved == 1)
+    #expect(!Paths.exists(a) && Paths.exists(b) && Paths.exists(c))
+    #expect(t.lines.contains("Kept 1 orphan."))
+}
+
+@Test func orphanNotesShowInThePlan() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let a = try fx.file("home/Library/Preferences/com.gone.app.plist")
+    let text = RemovalPlan(paths: [a], doubtful: .orphans([a: "high confidence"]), home: fx.home).render()
+        .joined(separator: "\n")
+    #expect(text.contains("Orphans, asked separately (no installed app claims them): 1 item"))
+    #expect(text.contains("com.gone.app.plist  (high confidence)"))
 }
 
 @Test func fuzzyMatchesNeedingSudoOnlyReachSudoWhenApproved() throws {
@@ -280,7 +342,7 @@ func run(_ plan: RemovalPlan, in fx: Fixture, _ t: Transcript, dryRun: Bool = fa
     defer { fx.remove() }
     let path = try fx.file("home/root-owned-lookalike")
     try fx.folder("home/.Trash")
-    let item = RemovalPlan.Item(path: path, size: 10, status: .sudo, isFuzzy: true)
+    let item = RemovalPlan.Item(path: path, size: 10, status: .sudo, isDoubtful: true)
 
     let no = Transcript()
     _ = run(RemovalPlan(items: [item], home: fx.home), in: fx, no)
@@ -288,7 +350,8 @@ func run(_ plan: RemovalPlan, in fx: Fixture, _ t: Transcript, dryRun: Bool = fa
     #expect(no.sudoCalls.isEmpty)
 
     let yes = Transcript()
-    yes.answers = [true, true]
+    yes.choices = [.all]
+    yes.answers = [true]
     _ = run(RemovalPlan(items: [item], home: fx.home), in: fx, yes)
     #expect(yes.questions.count == 2)
     #expect(yes.questions[1].contains("administrator rights"))
@@ -301,7 +364,7 @@ func run(_ plan: RemovalPlan, in fx: Fixture, _ t: Transcript, dryRun: Bool = fa
     let fuzzy = try fx.file("home/lookalike")
     let t = Transcript()
 
-    _ = run(RemovalPlan(paths: [fuzzy], fuzzy: [fuzzy], home: fx.home), in: fx, t, dryRun: true)
+    _ = run(RemovalPlan(paths: [fuzzy], doubtful: .fuzzy([fuzzy]), home: fx.home), in: fx, t, dryRun: true)
 
     #expect(t.questions.isEmpty)
     #expect(t.lines.contains { $0.hasPrefix("Fuzzy matches, asked separately") })
@@ -381,7 +444,7 @@ func realTrashMovesFixturesAndLogsThem() throws {
     t.answer = true
 
     let result = Remover.run(
-        RemovalPlan(paths: [a, folder], home: fx.home), dryRun: false, say: t.say, ask: t.ask,
+        RemovalPlan(paths: [a, folder], home: fx.home), dryRun: false, say: t.say, ask: t.ask, choose: t.choose,
         log: fx.log, sudo: t.sudo, launchctl: t.launchctl, trashItem: Trash.system)
 
     #expect(result.moved == 2)
