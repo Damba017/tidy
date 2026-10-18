@@ -4,6 +4,8 @@ public struct FileEntry: Sendable {
     public let name: String
     /// Allocated bytes; 0 for the second and later names of a hard-linked file.
     public let size: Int64
+    /// A symlink: its size is the link itself, the target isn't followed.
+    public let isSymlink: Bool
 }
 
 /// A scanned folder. Only folders are nodes; files are plain entries to keep memory down.
@@ -246,7 +248,7 @@ public final class Scanner: @unchecked Sendable {
                     size = field.loadUnaligned(as: Int64.self)
                 }
                 if links > 1 && !firstSighting(of: fileID) { size = 0 }
-                node.add(FileEntry(name: name, size: size))
+                node.add(FileEntry(name: name, size: size, isSymlink: type == VLNK.rawValue))
             }
         }
         return subfolders

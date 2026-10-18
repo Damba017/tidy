@@ -12,6 +12,12 @@ public struct Volume: Sendable {
 
     public var used: Int64 { max(0, total - available) }
     public var isBoot: Bool { mountPoint == "/" }
+
+    /// Space this volume uses that a scan didn't see: other APFS volumes in the same
+    /// container (VM, Preboot, Recovery), snapshots and folders that couldn't be read.
+    public func unaccounted(scanned: Int64) -> Int64 {
+        max(0, used - scanned)
+    }
 }
 
 public enum Volumes {

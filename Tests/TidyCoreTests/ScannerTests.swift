@@ -19,6 +19,7 @@ import Testing
     #expect(root.fileCount == 5)  // one, two, three, hard, link-to-root
     let a = try #require(root.dirs.first { $0.name == "a" })
     #expect(a.files.map(\.name).sorted() == ["link-to-root", "one"])
+    #expect(a.files.filter(\.isSymlink).map(\.name) == ["link-to-root"])
     #expect(a.dirs.map(\.name) == ["b"])
     #expect(a.dirs[0].parent === a)
     #expect(a.size < 300_000)  // the symlink to / wasn't followed
@@ -86,4 +87,6 @@ import Testing
     #expect(boot.total > boot.used && boot.used > 0)
     let system = try #require(Volumes.spaceUsed("/"))
     #expect(system > 1_000_000_000 && system < boot.total)
+    #expect(boot.unaccounted(scanned: boot.used - 5) == 5)
+    #expect(boot.unaccounted(scanned: boot.used + 5) == 0)  // never negative
 }

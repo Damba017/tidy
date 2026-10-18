@@ -26,8 +26,23 @@ func runDisk(path: String?, dryRun: Bool) -> Int32 {
         systemSize = volume.isBoot ? Volumes.spaceUsed("/") : nil
     }
     guard let (tree, needsFullDiskAccess) = scanWithProgress(root) else { return 0 }
-    DiskBrowser(root: tree, systemSize: systemSize, dryRun: dryRun, needsFullDiskAccess: needsFullDiskAccess).run()
+    // For a whole volume, also show what it uses beyond the scan, so the total matches "used".
+    var extras: [DiskBrowser.Row] = []
+    if let systemSize { extras.append(.system(systemSize)) }
+    if let volume = Volumes.mounted().first(where: { $0.scanRoot == root }) {
+        let unaccounted = volume.unaccounted(scanned: tree.size + (systemSize ?? 0))
+        if unaccounted > 0 { extras.append(.unscanned(unaccounted)) }
+    }
+    DiskBrowser(root: tree, extras: extras, dryRun: dryRun, needsFullDiskAccess: needsFullDiskAccess).run()
     return 0
+}
+
+/// What a symlink points to, as written in the link.
+private func linkTarget(_ path: String) -> String? {
+    var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
+    let count = readlink(path, &buffer, buffer.count)
+    guard count >= 0 else { return nil }
+    return String(decoding: buffer.prefix(count).map { UInt8(bitPattern: $0) }, as: UTF8.self)
 }
 
 /// Fully resolved path of an existing folder, or nil.
@@ -114,12 +129,14 @@ private final class DiskBrowser {
         case folder(DirNode)
         case file(FileEntry)
         case system(Int64)  // the sealed macOS system volume, shown as one line
+        case unscanned(Int64)  // what the volume uses beyond the scan
 
         var name: String {
             switch self {
             case .folder(let node): node.name
             case .file(let file): file.name
             case .system: "macOS system volume"
+            case .unscanned: "not scanned"
             }
         }
 
@@ -127,13 +144,22 @@ private final class DiskBrowser {
             switch self {
             case .folder(let node): node.size
             case .file(let file): file.size
-            case .system(let size): size
+            case .system(let size), .unscanned(let size): size
+            }
+        }
+
+        /// Summary lines at the top level: not on disk as such, so not openable or removable.
+        var isSummary: Bool {
+            switch self {
+            case .system, .unscanned: true
+            case .folder, .file: false
             }
         }
     }
 
     let root: DirNode
-    let systemSize: Int64?
+    /// Summary rows shown (and counted) at the top level only.
+    let extras: [Row]
     let dryRun: Bool
     var needsFullDiskAccess: Bool
     var current: DirNode
@@ -142,16 +168,16 @@ private final class DiskBrowser {
     var top = 0
     var message = ""
 
-    init(root: DirNode, systemSize: Int64?, dryRun: Bool, needsFullDiskAccess: Bool) {
+    init(root: DirNode, extras: [Row], dryRun: Bool, needsFullDiskAccess: Bool) {
         self.root = root
-        self.systemSize = systemSize
+        self.extras = extras
         self.dryRun = dryRun
         self.needsFullDiskAccess = needsFullDiskAccess
         current = root
     }
 
     var total: Int64 {
-        current.size + (current === root ? systemSize ?? 0 : 0)
+        current.size + (current === root ? extras.reduce(0) { $0 + $1.size } : 0)
     }
 
     func run() {
@@ -182,7 +208,7 @@ private final class DiskBrowser {
 
     private func reload(selecting name: String? = nil) {
         rows = current.dirs.map(Row.folder) + current.files.map(Row.file)
-        if current === root, let systemSize { rows.append(.system(systemSize)) }
+        if current === root { rows += extras }
         rows.sort { $0.size != $1.size ? $0.size > $1.size : $0.name < $1.name }
         if let name, let index = rows.firstIndex(where: { $0.name == name }) { cursor = index }
         cursor = max(0, min(cursor, rows.count - 1))
@@ -207,8 +233,10 @@ private final class DiskBrowser {
             cursor = 0
             top = 0
             reload()
-        case .file: message = "That's a file, not a folder."
+        case .file(let file):
+            message = file.isSymlink ? "That's a symlink; tidy doesn't follow links." : "That's a file, not a folder."
         case .system: message = "The macOS system volume is sealed; tidy doesn't look inside it."
+        case .unscanned: message = "That's an estimate of space the scan couldn't see, not a folder. See ? for what's in it."
         case nil: break
         }
     }
@@ -224,8 +252,8 @@ private final class DiskBrowser {
     /// Leaves the browser, lets the safety core show the plan and ask, then comes back.
     private func trashSelected() {
         guard let row = selected else { return }
-        if case .system = row {
-            message = "The macOS system volume can't be removed."
+        if row.isSummary {
+            message = "\(row.name) is a summary line; there's nothing to remove."
             return
         }
         let path = path(of: row)
@@ -248,8 +276,8 @@ private final class DiskBrowser {
 
     private func revealSelected() {
         guard let row = selected else { return }
-        if case .system = row {
-            message = "The macOS system volume can't be shown in Finder."
+        if row.isSummary {
+            message = "\(row.name) is a summary line; there's nothing to show in Finder."
             return
         }
         let process = Process()
@@ -294,6 +322,9 @@ private final class DiskBrowser {
             "Sizes are space actually used on disk (allocated), hard links count once.",
             "APFS clones and snapshots share space, so totals can differ from what Finder shows.",
             "The boot disk is scanned through its data volume; the sealed macOS system volume is one line.",
+            "\"not scanned\" is what the volume uses that the scan didn't see: other APFS volumes (VM, Preboot,",
+            "Recovery), snapshots (e.g. Time Machine) and folders tidy wasn't allowed to read. It's an estimate.",
+            "Symlinks show where they point (→); tidy counts the link itself, never what it points to.",
             "",
             "Press any key.",
         ].map { fit($0, w) }
@@ -345,8 +376,10 @@ private final class DiskBrowser {
                 size = "?"
                 note = "  (\(error))"
             }
-        case .file: break
+        case .file(let file):
+            if file.isSymlink { name += " → " + (linkTarget(path(of: row)) ?? "?") }
         case .system: note = "  (sealed, read-only)"
+        case .unscanned: note = "  (other volumes, snapshots, unreadable folders; estimate, see ?)"
         }
         var text = "  " + rightAligned(size, 8) + "  " + rightAligned(String(format: "%.1f%%", fraction * 100), 6)
         if width >= 70 { text += "  " + bar(fraction, 20) }
