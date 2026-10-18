@@ -53,10 +53,13 @@ public enum AppFinder {
     }
 
     /// Reads one .app bundle. Nil if it isn't a real folder.
+    /// iPhone/iPad apps on a Mac are wrapped: their Info.plist is in WrappedBundle/, and they come
+    /// from the App Store when Wrapper/iTunesMetadata.plist is there.
     public static func load(_ path: String) -> App? {
         guard isRealFolder(path) else { return nil }
-        let info = NSDictionary(contentsOfFile: path + "/Contents/Info.plist") as? [String: Any] ?? [:]
-        let receipt = Paths.exists(path + "/Contents/_MASReceipt")
+        let plist = Paths.exists(path + "/Contents/Info.plist") ? "/Contents/Info.plist" : "/WrappedBundle/Info.plist"
+        let info = NSDictionary(contentsOfFile: path + plist) as? [String: Any] ?? [:]
+        let receipt = Paths.exists(path + "/Contents/_MASReceipt") || Paths.exists(path + "/Wrapper/iTunesMetadata.plist")
         return App(
             path: path,
             bundleID: info["CFBundleIdentifier"] as? String,

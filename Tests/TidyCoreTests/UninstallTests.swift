@@ -33,6 +33,23 @@ func makeApp(_ fx: Fixture, _ relative: String, bundleID: String, name: String? 
     #expect(apps[0].bundleID == "com.hnc.Discord")
 }
 
+@Test func wrappedIPhoneAppsAreReadToo() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    // Like /Applications/Marktplaats.app: WrappedBundle -> Wrapper/Marktplaats.app, plus iTunesMetadata.plist.
+    try makeApp(fx, "apps/Marktplaats.app/Wrapper/Marktplaats.app", bundleID: "com.marktplaats.iphone")
+    let inner = fx.root + "/apps/Marktplaats.app/Wrapper/Marktplaats.app"
+    try FileManager.default.moveItem(atPath: inner + "/Contents/Info.plist", toPath: inner + "/Info.plist")
+    try FileManager.default.createSymbolicLink(atPath: fx.root + "/apps/Marktplaats.app/WrappedBundle",
+                                               withDestinationPath: "Wrapper/Marktplaats.app")
+    try fx.file("apps/Marktplaats.app/Wrapper/iTunesMetadata.plist")
+
+    let app = try #require(AppFinder.load(fx.root + "/apps/Marktplaats.app"))
+
+    #expect(app.bundleID == "com.marktplaats.iphone")
+    #expect(app.source == .appStore)
+}
+
 @Test func matchingPrefersExactNamesOverSubstrings() throws {
     let fx = try Fixture()
     defer { fx.remove() }
