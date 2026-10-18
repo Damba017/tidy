@@ -30,6 +30,10 @@ Philosophy: KISS. Powerful, not pretty. Every feature must earn its place.
 - Everything in the project is **English**: code, comments, commit messages, tool output, menus, this file.
 - **Whenever you show him a command, explain what it does, why, and what every flag means.**
 - Before starting a new phase (see Roadmap), say in a few lines what you're going to build. After finishing it, give him one or two `--dry-run` commands to try himself.
+- Give **complete, copy-pasteable commands** (`.build/release/tidy junk --dry-run`, not `junk --dry-run`), each in its own block, with a before/after check (`stat -f '%Sm' ~/.Trash`, `ls ~/.local/state/tidy/log`) when something could change.
+- After a phase or a fix he has tested: offer to push (he says yes each time; see rule 7).
+- Be honest about what you did *not* test, and about anything that went wrong.
+- Say it up front when a command you run deletes anything (`rm -rf`, even on your own fixtures in `/tmp`); better, don't put deletes in commands at all.
 
 ---
 
@@ -67,6 +71,13 @@ tidy --version
 Global flags:
   --dry-run    Show exactly what would happen. Never touches anything.
   --yes        NOT supported. Every destructive action needs an interactive y/N.
+
+Junk flags:
+  --min-size SIZE     large: files at least this big (default 1GB; 500MB, 1.5G, … decimal units)
+  --older-than DAYS   large: also files ≥ 100 MB unused this long (default 180)
+
+Dev aid (not in --help):
+  tidy _plan PATH…    Show the removal plan for these paths. Always a dry run, never asks.
 ```
 
 ### `tidy` (no arguments) → main menu
@@ -83,7 +94,7 @@ Number keys or arrows + Enter. Each option drops into the same flow as its subco
 Accepts **multiple names** (`tidy uninstall discord firefox fastfetch cava`). With no name, the app list is **multi-select** (space to toggle) with **type-to-filter**: typing narrows the list live (case-insensitive substring on app/package name), backspace widens it again, and selections persist while the filter changes. Each row shows name, size and source; footer shows `N of M · K selected`. Multiple targets are handled as one batch:
 - First a "Found N" summary: name, full path, source per target. Ambiguous names get a pick-one prompt each; names with no match are reported and skipped.
 - One combined "quit running apps?" prompt for all running targets.
-- One combined review list, **grouped per app** (collapsible, with per-app totals; groups needing sudo are labelled). Each group header has its own checkbox: toggling it selects/deselects all items in that group; it shows `[x]` when all are selected, `[ ]` when none, `[~]` when some. Individual items stay toggleable. Then **one** `y/N` for everything that can go to the Trash without root.
+- One combined review list, **grouped per app** (collapsible, with per-app totals; groups needing sudo are labelled). Each group header has its own checkbox: toggling it selects/deselects all items in that group; it shows `[x]` when all are selected, `[ ]` when none, `[~]` when some. Individual items stay toggleable. Then **one** `y/N` for everything that can go to the Trash without root. Brew packages aren't in this list (brew removes them, not tidy); the review screen says which come after it ("After this list: cava (Homebrew formula), via brew with its own questions.").
 - **Fuzzy matches are never removed on that same y.** Ticked fuzzy items get their own block in the plan ("Fuzzy matches, asked separately") and their own question: `y = all · o = one by one · N = none (Enter)`. One by one asks `y/N` per item; an N keeps that item and goes back to the question for the rest. Ticked fuzzy items that need root join the sudo prompt only after they were approved.
 - Then **one** sudo prompt for all root-owned items across all targets (e.g. App Store `.app` bundles).
 - Then the brew flow (step 6) **per brew package**, each with its own two questions.
@@ -98,10 +109,12 @@ For each name:
    - Build one candidate list from: `.app` bundles (match `name` against the bundle folder name, `CFBundleName` and `CFBundleDisplayName`), `brew list --formula`, `brew list --cask`.
    - Link casks to their apps: `brew info --cask --json=v2 --installed` lists each cask's `app` artifacts (e.g. `Discord.app`). A `.app` that belongs to a cask is **one** candidate, labelled `Homebrew cask`, not two.
    - Classify every candidate as exactly one of: `Homebrew cask`, `Homebrew formula`, `App Store` (bundle has `Contents/_MASReceipt` → root-owned, needs the sudo prompt), or `manual` (DMG/zip install).
+   - iPhone/iPad apps on the Mac (e.g. Marktplaats) are wrapped: `X.app/WrappedBundle -> Wrapper/X.app`, Info.plist at `WrappedBundle/Info.plist`, App Store when `Wrapper/iTunesMetadata.plist` exists.
+   - Symlinked apps (`/Applications/Safari.app` → the sealed system) are not candidates.
    - Show the source and full path on the first line of output so it's never a guess.
    - Homebrew → brew flow (step 6). App Store / manual → `.app` flow (step 4).
 2. If several match, let him pick.
-3. If the app is running: say so and ask to quit it (y/N). Don't proceed while it runs.
+3. If the app is running: say so and ask to quit it (y/N). Don't proceed while it runs. Quitting uses AppKit's `NSRunningApplication.terminate()` (like ⌘Q, so apps can save) and waits up to 15 s; an app that doesn't quit is skipped.
 4. **For a `.app`:** collect related files by bundle ID, app name, and executable name in:
    - `~/Library/Application Support`, `Caches`, `Preferences` (+ `ByHost`), `Containers`, `Group Containers`, `Saved Application State`, `HTTPStorages`, `WebKit`, `Logs`, `LaunchAgents`, `Cookies`, `Application Scripts`
    - `/Library/Application Support`, `/Library/Caches`, `/Library/Preferences`, `/Library/LaunchAgents`, `/Library/LaunchDaemons`, `/Library/PrivilegedHelperTools`
@@ -110,29 +123,34 @@ For each name:
 5. Show the list with sizes, let him toggle items, then one final `y/N` (plus the separate fuzzy `y/N` above, if he ticked any).
    - A path to a `.app` (e.g. `~/Downloads/Foo.app`) is accepted as a name and used as is.
    - Leftovers macOS privacy protection keeps tidy out of (EPERM, not root-owned) are not offered; they're listed afterwards with the Full Disk Access hint. sudo doesn't help there.
-6. **For brew packages** the flow is exactly:
+6. **For brew packages** the flow is (this is the real output):
    ```
    $ tidy uninstall fastfetch
    fastfetch is installed via Homebrew (formula).
    Uninstall fastfetch (via brew)? (y/N) y
+   Running: brew uninstall fastfetch
    ...
-   Found 3 leftovers (1.2 MB):
-     ~/.config/fastfetch            840 KB
-     ~/Library/Caches/fastfetch     310 KB
-     ~/.cache/fastfetch              92 KB
-   Remove all leftovers? (y/N)
+   Leftovers of fastfetch:
+   Move to the Trash: 1 item, 4.1 KB
+       4.1 KB  ~/.config/fastfetch
+   Move 1 item, 4.1 KB to the Trash? (y/N)
    ```
-   - The uninstall itself runs `brew uninstall <name>` (casks: `brew uninstall --cask <name>`; mention `--zap` exists and ask before using it).
-   - Leftovers: `~/.config/<name>`, `~/.cache/<name>`, `~/.local/share/<name>`, `~/.<name>` / `~/.<name>rc`, plus the `~/Library` locations above. Leftovers go to Trash.
+   - The uninstall itself runs `brew uninstall <name>` (casks: `brew uninstall --cask <name>`). For casks tidy explains `--zap` (it deletes the cask's listed files right away, **not** via the Trash) and asks separately; default No.
+   - Leftovers: `~/.config/<name>`, `~/.cache/<name>`, `~/.local/share/<name>`, `~/.local/state/<name>`, `~/.<name>` / `~/.<name>rc`, plus the `~/Library` locations above (by the cask app's bundle ID and names). They go through the safety core (plan, `y/N`, fuzzy asked separately) → Trash.
    - If something else depends on it (`brew uses --installed <name>`), warn before asking.
+   - Said no, or `brew uninstall` failed → its leftovers are left alone too. `--dry-run` never runs brew; it prints "would run: brew uninstall …" and the leftover plan.
+   - brew queries run with `HOMEBREW_NO_AUTO_UPDATE=1`. Even read-only queries let brew refresh its own cache in `~/Library/Caches/Homebrew/api`; that's brew's housekeeping, not an install.
 
 ### `tidy disk [path]`
 - No path → list mounted volumes (Macintosh HD + any externals) with used/free, let him pick.
 - **Boot volume:** scan the data volume (`/System/Volumes/Data`), not `/` — the sealed system volume and firmlinks otherwise double-count. Show the system volume's size as a single line item.
 - Don't cross into other filesystems (compare `st_dev`), don't follow symlinks, count hard links once (by inode), use **allocated size** (`st_blocks * 512`), not logical size. Note in the UI that APFS clones/snapshots can make totals differ from Finder.
-- ncdu-style browser: entries sorted by size, size + percentage + a bar, `Enter` into a folder, `Backspace`/`←` up, `d` delete (→ Trash, y/N), `o` reveal in Finder (`open -R`), `r` rescan, `q` quit, `?` help.
+- ncdu-style browser: entries sorted by size, size + percentage + a bar, `Enter` into a folder, `Backspace`/`←` up, `d` delete (→ Trash, y/N), `o` reveal in Finder (`open -R`), `r` rescan, `/` search this folder by name (Enter keeps it, Esc clears it; changing folder clears it), `q` quit, `?` help.
+- `d` leaves the TUI, runs the safety core (plan first, then the questions), waits for Enter, comes back; the entry disappears from the tree only if it's really gone.
 - Unreadable folders: show them as a line with "permission denied" instead of silently skipping.
-- Scanning must be fast and show progress (files scanned, current path). Use concurrency where it helps.
+- Scanning must be fast and show progress (files scanned, current path). Use concurrency where it helps. (Done: `getattrlistbulk`, up to 16 threads; `/Applications` with 124k files in < 1 s, totals equal to `du`.)
+- Symlinks show their target (`Safari.app → ../System/Cryptexes/…`); the link itself is counted, never followed.
+- A whole-volume scan gets a **"not scanned"** line: volume used − (scan + system volume), i.e. other APFS volumes (VM, Preboot, Recovery), snapshots and unreadable folders, so the top total matches "used".
 
 ### `tidy junk [category]`
 Categories (no argument = all, grouped with totals per category):
@@ -148,14 +166,20 @@ Categories (no argument = all, grouped with totals per category):
 Review list grouped per category, with the same group-checkbox rules as `uninstall` (`[x]` all / `[~]` some / `[ ]` none). **Default selection:** Caches & logs and Dev junk are checked (apps regenerate them); Large & old and Orphans are unchecked (his own files / risk of false positives) — he ticks those himself. Then one `y/N` → Trash. Ticked **orphans** are asked about separately, like fuzzy matches: `y = all · o = one by one · N = none (Enter)`; in one-by-one mode an N keeps that item and goes back to that question for the rest.
 
 ### Review-list keys (shared by `uninstall` and `junk`)
-`↑`/`↓` move · `space` toggle item (or whole group when on its header) · `→` expand group · `←` collapse group (or jump to its header) · `a` toggle all items of the group the cursor is in (works on the header or on any item inside it; all → none → all) · `enter` continue to confirmation · `q`/`esc` cancel. No `n`/`y` keys in lists, so they never get confused with the `(y/N)` prompt. Groups start collapsed except small ones (≤ 5 items). Always show this key line at the bottom.
+`↑`/`↓` move · `tab`/`⇧tab` next/previous group header (from an item, `⇧tab` goes to its own header first; no wrap-around) · `/` search · `space` toggle item (or whole group when on its header) · `→` expand group · `←` collapse group (or jump to its header) · `a` toggle all items of the group the cursor is in (works on the header or on any item inside it; all → none → all) · `enter` continue to confirmation · `q`/`esc` cancel. No `n`/`y` keys in lists, so they never get confused with the `(y/N)` prompt. Groups start collapsed except small ones (≤ 5 items). Always show this key line at the bottom.
+
+**Search (`/`):** type to filter on path, label or group name (case-insensitive); only groups with matches show, opened, with just the matching items; the status line shows `/term  N matches`. Enter (or ↑/↓/tab) keeps the results and returns to the keys above; Esc clears the search. With a search active, the first Esc clears it and a second one cancels. While searching, `space` on a header and `a` only touch the **matching** items — what you can't see never changes. Checks are kept when the search changes.
+
+The uninstall app picker filters by just typing (no `/`), space selects, Enter continues (the highlighted one if nothing is selected), Esc cancels.
 
 ---
 
 ## Safety design (built into the tool)
 
+- **One removal path:** everything that removes goes through `Remover.run` (the safety core). It first prints the whole plan — every path with size, grouped as *Move to the Trash* / *asked separately* (fuzzy matches, orphans) / *Needs sudo* / *Protected* / *Not found* — and only then asks, in this order: one `y/N` for the sure items → `y = all · o = one by one · N = none` for the doubtful ones → one `y/N` for sudo. `--dry-run` stops right after the plan.
 - **Everything goes to the Trash**, never `unlink`/`removeItem`. The only exceptions are `brew uninstall` itself (brew owns that) — always behind a `y/N`.
-- **Default answer is always No.** `(y/N)`, Enter = no.
+- **Default answer is always No.** `(y/N)`, Enter = no. Only `y`/`yes` counts. When stdin isn't a terminal every question is answered No, so a yes can't be piped in.
+- **Privacy protection is not root:** `access()` failing with `EACCES` (permission bits, e.g. root-owned App Store apps) → sudo batch. `EPERM` (macOS privacy protection, or a lock flag) → *Protected*, with the Full Disk Access hint; sudo from a terminal can't get past it either.
 - **`--dry-run` everywhere**, and it must be truly side-effect free (no brew calls that change state, no trash, no sudo, no quitting running apps — the quit prompt is skipped and listed as "would quit").
 - **Denylist** — never offer to delete, regardless of what matching says:
   `/System`, `/usr` (except `/usr/local`), `/bin`, `/sbin`, `/private/var/db` (except reading receipts), `/Library/Apple`, `~/Library/Keychains`, `~/Library/Mail`, `~/Library/Messages`, `~/Library/Mobile Documents` (iCloud Drive), `~/Pictures/Photos Library.photoslibrary`, anything `com.apple.*` in orphan detection, the home folder itself, and any mount point.
@@ -169,15 +193,38 @@ Review list grouped per category, with the same group-checkbox rules as `uninsta
   - The tool *can* remove them, but every time it needs root it says so explicitly and asks: `These 3 items need administrator rights (sudo). Continue? (y/N)`.
   - Then one `sudo` prompt for the batch, moving items into `~/.Trash/` with a collision-safe name (`sudo /bin/mv`). Mention that emptying the Trash will ask for his password later.
   - SIP-protected paths: report and skip, don't try.
-  - For LaunchDaemons/Agents: `launchctl bootout` the job before removing the plist (also behind the same confirmation).
+  - For LaunchDaemons/Agents: `launchctl bootout` the job before removing the plist (also behind the same confirmation). Done in the safety core: agents `launchctl bootout gui/<uid> <plist>`, daemons `sudo -n /bin/launchctl bootout system <plist>`; never for a path the denylist refuses; the plan marks them "(stops its launchd job first)".
 - **Full Disk Access:** some `~/Library/Containers` etc. are TCC-protected. Detect this once (EPERM on a known protected path) and print how to grant it: *System Settings → Privacy & Security → Full Disk Access → add your terminal app*. Continue with what's readable.
-- **Log:** append every removal (timestamp, original path, size, where it went in the Trash, whether sudo was used) to `~/.local/state/tidy/log`. Items moved with `sudo mv` don't get Finder's "Put Back", so the log is how to find their origin.
+- **Log:** append every removal (timestamp, original path, size, where it went in the Trash, whether sudo was used) to `~/.local/state/tidy/log`. Items moved with `sudo mv` don't get Finder's "Put Back", so the log is how to find their origin. Format: one tab-separated line per item, `time  moved|failed  size  original  destination-or-error  sudo=yes|no`. If the Trash already holds that name, macOS adds a timestamp (`com.spotify.installer 20-27-47-232.installer`); the log has the exact name.
 
 ---
 
+## Code map
+
+`Sources/TidyCore/` (logic, no terminal):
+- `Remover.swift` — the safety core: prints the plan, asks, trashes, sudo batch, launchctl, log. The only removal path.
+- `RemovalPlan.swift` — what would happen to each path (Trash / sudo / protected / missing), the doubtful block, rendering.
+- `Denylist.swift` — what may never be removed. `Paths.swift` — normalize (symlinks, `/System/Volumes/Data`), display with `~`.
+- `Trash.swift` (move to Trash, refuses denylisted paths itself), `Sudo.swift`, `Launchctl.swift`, `Log.swift`.
+- `Size.swift` — allocated size (`fts`), formatting, parsing ("500MB"). `Scanner.swift` — `getattrlistbulk` tree scan for `disk`. `Volumes.swift`.
+- `AppFinder.swift` (.app bundles), `Brew.swift` (read-only queries + running `brew uninstall`), `Candidates.swift` (apps + brew in one list), `Leftovers.swift` (bundle ID / name / fuzzy / pkg receipts / dotfiles), `BrewFlow.swift`, `RunningApps.swift` (AppKit, only for quitting/bundle IDs).
+- `Junk.swift` — caches, large & old + dev (one `fts` walk through `~`), orphans.
+- `ReviewList.swift` — the review-list model (groups, checks, search, Tab jumps) and the uninstall picker model.
+
+`Sources/tidy/` (terminal): `main.swift` (arguments), `Prompt.swift` (`ask` y/N, `choose` y/o/N), `DiskCommand.swift`, `UninstallCommand.swift`, `JunkCommand.swift`, `TUI/Terminal.swift` (raw mode, keys, restore on exit/signals), `TUI/ReviewView.swift`, `TUI/Text.swift`.
+
+## Development & testing
+
+- `swift test` runs everything (Swift Testing). Every test works on fixtures in `/tmp/tidy-test/<uuid>` (`Fixture` in `Tests/TidyCoreTests/Fixtures.swift`) with a fake home.
+- **No test may ever reach the real Trash, sudo, launchctl or brew.** The internal overloads of `Remover.run`, `Trash.move` and `BrewFlow.run` have **no defaults** on purpose: tests pass `fx.trash` (a fake Trash inside the fixture, which also refuses anything outside `/tmp/tidy-test`), `Transcript` (fake `ask`/`choose`/`sudo`/`launchctl` that record and run nothing) and `FakeBrew`. The one test that uses the real Trash only runs with `TIDY_TRASH_TESTS=1` — ask Damba first. (On 2026-10-18 a denylist bug, `/tmp` vs `/private/tmp`, made refusal tests move empty fixture folders into his real Trash; that's why.)
+- To check the real Trash wasn't touched: `stat -f '%Sm' ~/.Trash` before and after (listing `~/.Trash` is blocked by privacy protection).
+- TUI checks: `python3 -I scripts/drive_tui.py COLS ROWS STEPS… -- .build/debug/tidy …` runs tidy in a pseudo-terminal and prints screens (cursor row marked `>>`). Only with `--dry-run` or on fixtures, answering `n`.
+- Don't scan Damba's whole home or disk from the agent (`junk large/dev/caches`, `disk` on `~`): macOS then shows privacy pop-ups for the Claude app. Give him the commands to run in his own Terminal instead. Reading names in `~/Library` and Spotlight (`junk orphans`) is fine.
+- `tidy _plan PATH…` shows what tidy would do with any path, always as a dry run.
+
 ## Code conventions
 
-- Small files, one responsibility each (`Scanner.swift`, `Trash.swift`, `Volumes.swift`, `AppFinder.swift`, `Brew.swift`, `Junk.swift`, `TUI/…`).
+- Small files, one responsibility each (see the code map).
 - No clever abstractions. No protocols with one implementation. No Linux shims.
 - Human-readable sizes: decimal units like Finder (1 GB = 1,000,000,000 bytes).
 - Errors: say what failed and on which path. Never crash on a permission error mid-scan.
@@ -187,13 +234,16 @@ Review list grouped per category, with the same group-checkbox rules as `uninsta
 
 ## Roadmap (build in this order, commit after each)
 
-0. **Environment check** (read-only): `swift --version`, `xcode-select -p`, `which brew`. Report to Damba. Set up the SwiftPM package + git repo + `.gitignore` (`.build/`). Skeleton `tidy --help` / `--version`.
-1. **Safety core:** Trash wrapper, denylist, dry-run plumbing, y/N prompt, sudo-batch prompt (implemented, never executed by you), log. Tests on `/tmp/tidy-test/` fixtures.
-2. **`tidy disk`:** volume picker, fast scanner, ncdu-style TUI browser.
-3. **`tidy uninstall`** for `.app` bundles.
-4. **Homebrew** support in `uninstall`.
-5. **`tidy junk`:** caches → large → dev → orphans (orphans last; most risk of false positives).
+0. ✅ **Environment check** (read-only): `swift --version`, `xcode-select -p`, `which brew`. Report to Damba. Set up the SwiftPM package + git repo + `.gitignore` (`.build/`). Skeleton `tidy --help` / `--version`. (Swift 6.4, Command Line Tools only, no Xcode; brew at `/opt/homebrew`.)
+1. ✅ **Safety core:** Trash wrapper, denylist, dry-run plumbing, y/N prompt, sudo-batch prompt (implemented, never executed by you), log. Tests on `/tmp/tidy-test/` fixtures.
+2. ✅ **`tidy disk`:** volume picker, fast scanner, ncdu-style TUI browser.
+3. ✅ **`tidy uninstall`** for `.app` bundles.
+4. ✅ **Homebrew** support in `uninstall`.
+5. ✅ **`tidy junk`:** caches → large → dev → orphans (orphans last; most risk of false positives).
 6. **Main menu** (`tidy` without arguments).
 7. **Release build + install** to `~/.local/bin` — ask first. Check that `~/.local/bin` is in his `PATH`; if not, tell him the line to add himself.
+8. **Full code review, at max effort**, looking for anything that could remove the wrong thing — before Damba's first real uninstalls (AppCleaner first, then an App Store app he doesn't care about: the first real run of the sudo path).
+
+**Where things stand (2026-10-18):** phases 0–5 are done, tested by Damba with `--dry-run`, and pushed. Real removals have been tried once, on purpose and small (`junk orphans` and `junk caches`, user-owned items only): Trash, log and "Put Back" work. Never run for real yet: the sudo path, `launchctl bootout`, `brew uninstall`, quitting a running app. Open question: whether `junk dev` should skip `__pycache__` inside virtual environments (`pyvenv.cfg`) and `~/.local/share/uv` — waiting for Damba.
 
 Stop and ask whenever a decision isn't covered here instead of guessing.
