@@ -55,7 +55,7 @@ case "uninstall":
     fail("'uninstall' is not implemented yet.", code: 1)
 case "disk":
     if rest.count > 1 { fail("'disk' takes at most one path.") }
-    fail("'disk' is not implemented yet.", code: 1)
+    exit(runDisk(path: rest.first, dryRun: dryRun))
 case "junk":
     if rest.count > 1 { fail("'junk' takes at most one category.") }
     if let category = rest.first, !["orphans", "caches", "large", "dev"].contains(category) {
