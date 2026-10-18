@@ -20,7 +20,7 @@ Philosophy: KISS. Powerful, not pretty. Every feature must earn its place.
 4. **Never run `brew uninstall`, `brew install` or `brew` commands that change state.** Read-only brew queries (`brew list`, `brew info --json`, `brew --prefix`) are fine.
 5. **Never change system settings** (Full Disk Access, privacy permissions, defaults, launchctl). If something needs a permission, tell Damba how to grant it himself.
 6. **Zero external dependencies.** Only the Swift standard library and Apple system frameworks (Foundation, Darwin, and AppKit only if truly needed). No SwiftPM packages. If you genuinely believe one is necessary, stop and ask.
-7. **Git:** commit locally after each working step with a clear message. Remote `origin` = `git@github.com:Damba017/tidy.git`. **Push only when Damba explicitly asks**, every time. Never force-push, never rewrite history, never add other remotes.
+7. **Git:** commit locally after each working step with a clear message. Remote `origin` = `https://github.com/Damba017/tidy.git` (HTTPS with a fine-grained per-repo access token in the macOS keychain; no SSH). **Push only when Damba explicitly asks**, every time. Never force-push, never rewrite history, never add other remotes.
 
 ---
 
