@@ -71,7 +71,9 @@ func runUninstall(names: [String], dryRun: Bool) -> Int32 {
     }
 
     print("Looking for leftovers…")
-    let list = ReviewList(groups: targets.map(group(for:)))
+    let found = targets.map(group(for:))
+    let list = ReviewList(groups: found.map(\.group))
+    let privacyProtected = found.flatMap(\.privacyProtected)
     let selected: [String]
     if interactive {
         Terminal.start()
@@ -86,6 +88,13 @@ func runUninstall(names: [String], dryRun: Bool) -> Int32 {
         printPlain(list)
         selected = list.selectedPaths
     }
+    if !privacyProtected.isEmpty {
+        print("")
+        print("Not in the list: macOS won't let tidy touch these without Full Disk Access:")
+        privacyProtected.forEach { print("  " + Paths.display($0)) }
+        print("To include them: System Settings → Privacy & Security → Full Disk Access → add your terminal app,")
+        print("then run tidy again.")
+    }
     guard !selected.isEmpty else {
         print("Nothing selected; nothing was changed.")
         return 0
@@ -97,16 +106,26 @@ func runUninstall(names: [String], dryRun: Bool) -> Int32 {
 }
 
 /// The app bundle plus everything it left behind, as one group of the review list.
-/// Protected or missing paths never make it into the list.
-private func group(for app: App) -> ReviewList.Group {
+/// Protected or missing paths never make it into the list; the ones macOS privacy protection
+/// keeps tidy out of are returned separately so the user hears about them.
+private func group(for app: App) -> (group: ReviewList.Group, privacyProtected: [String]) {
     let candidates = [(app.path, "app", true)] + Leftovers.find(for: app).map { ($0.path, $0.match.label, $0.checkedByDefault) }
-    let items = candidates.compactMap { path, label, checked -> ReviewList.Item? in
-        guard let planned = RemovalPlan(paths: [path]).items.first,
-              planned.status == .trash || planned.status == .sudo else { return nil }
-        return ReviewList.Item(path: planned.path, size: planned.size, label: label,
-                               needsSudo: planned.status == .sudo, checked: checked)
+    var items: [ReviewList.Item] = []
+    var privacyProtected: [String] = []
+    for (path, label, checked) in candidates {
+        guard let planned = RemovalPlan(paths: [path]).items.first else { continue }
+        switch planned.status {
+        case .trash, .sudo:
+            items.append(ReviewList.Item(path: planned.path, size: planned.size, label: label,
+                                         needsSudo: planned.status == .sudo, checked: checked))
+        case .blocked(RemovalPlan.privacyReason):
+            privacyProtected.append(planned.path)
+        case .blocked, .missing:
+            break
+        }
     }
-    return ReviewList.Group(title: app.name, detail: "\(app.source.rawValue) · \(Paths.display(app.path))", items: items)
+    let group = ReviewList.Group(title: app.name, detail: "\(app.source.rawValue) · \(Paths.display(app.path))", items: items)
+    return (group, privacyProtected)
 }
 
 /// Several apps match `name`: let the user pick one by number.

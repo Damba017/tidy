@@ -94,22 +94,39 @@ public struct RemovalPlan: Sendable {
             if error == ENOENT || error == ENOTDIR { return Item(path: path, size: 0, status: .missing) }
             return Item(path: path, size: 0, status: .blocked(String(cString: strerror(error))))
         }
-        return Item(path: path, size: Size.allocated(path), status: needsRoot(path, st) ? .sudo : .trash)
+        switch permission(path, st) {
+        case .user: return Item(path: path, size: Size.allocated(path), status: .trash)
+        case .root: return Item(path: path, size: Size.allocated(path), status: .sudo)
+        case .nobody(let reason): return Item(path: path, size: 0, status: .blocked(reason))
+        }
     }
 
-    /// Whether moving `path` out of its folder needs root.
-    static func needsRoot(_ path: String, _ st: stat) -> Bool {
+    public static let privacyReason = "macOS privacy protection; needs Full Disk Access for your terminal"
+
+    enum Permission: Equatable {
+        case user
+        case root
+        case nobody(String)
+    }
+
+    /// Who may move `path` out of its folder. EACCES means the file permissions say no, which root
+    /// gets past. EPERM means macOS itself says no (privacy protection or a lock), and sudo from a
+    /// terminal doesn't get past that either.
+    static func permission(_ path: String, _ st: stat) -> Permission {
+        if st.st_flags & (UInt32(UF_IMMUTABLE) | UInt32(SF_IMMUTABLE)) != 0 { return .nobody("locked") }
         let parent = Paths.parent(path)
-        if access(parent, W_OK) != 0 { return true }
         // Moving a folder rewrites its ".." entry, so the folder itself must be writable too.
-        if (st.st_mode & S_IFMT) == S_IFDIR && access(path, W_OK) != 0 { return true }
+        let targets = (st.st_mode & S_IFMT) == S_IFDIR ? [parent, path] : [parent]
+        for target in targets where access(target, W_OK) != 0 {
+            return errno == EPERM ? .nobody(privacyReason) : .root
+        }
         // In a sticky folder (like /tmp) only the owner of the item or of the folder may move it.
         var parentStat = stat()
         if lstat(parent, &parentStat) == 0, parentStat.st_mode & S_ISVTX != 0,
            st.st_uid != getuid(), parentStat.st_uid != getuid() {
-            return true
+            return .root
         }
-        return false
+        return .user
     }
 
     /// "3 items, 1.2 MB"

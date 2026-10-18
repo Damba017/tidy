@@ -64,6 +64,22 @@ func run(_ plan: RemovalPlan, in fx: Fixture, _ t: Transcript, dryRun: Bool = fa
     #expect(plan.items[1].size < 5000)  // the symlink itself, not its target
 }
 
+@Test func lockedItemsAreProtectedNotSudo() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let file = try fx.file("home/locked.txt")
+    chflags(file, UInt32(UF_IMMUTABLE))
+    defer { chflags(file, 0) }
+    let readOnlyFolder = try fx.folder("home/readonly")
+    try fx.file("home/readonly/inside.txt")
+    chmod(readOnlyFolder, 0o555)
+    defer { chmod(readOnlyFolder, 0o755) }
+
+    let plan = RemovalPlan(paths: [file, readOnlyFolder, readOnlyFolder + "/inside.txt"], home: fx.home)
+
+    #expect(plan.items.map(\.status) == [.blocked("locked"), .sudo])  // EPERM: nobody; EACCES: root
+}
+
 @Test func renderShowsEveryPathWithWhatHappensToIt() throws {
     let fx = try Fixture()
     defer { fx.remove() }
