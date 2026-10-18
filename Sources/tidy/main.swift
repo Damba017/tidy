@@ -62,6 +62,11 @@ case "junk":
         fail("unknown junk category '\(category)'. Use: orphans | caches | large | dev.")
     }
     fail("'junk' is not implemented yet.", code: 1)
+case "_plan":
+    // Dev aid, not in --help: shows what tidy would do with these paths. Always a dry run.
+    if rest.isEmpty { fail("'_plan' needs one or more paths.") }
+    _ = Remover.run(RemovalPlan(paths: rest), dryRun: true, say: { print($0) }, ask: { _ in false })
+    exit(0)
 default:
     fail("unknown command '\(command!)'. See 'tidy --help'.")
 }
