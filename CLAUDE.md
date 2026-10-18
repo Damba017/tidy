@@ -46,7 +46,8 @@ Philosophy: KISS. Powerful, not pretty. Every feature must earn its place.
   - `tidy` (executable): argument parsing, TUI, prompts. Thin layer over `TidyCore`.
   - Tests (`TidyCoreTests`): **Swift Testing** (`import Testing`, `@Test`, `#expect`) works with the Command Line Tools alone; XCTest is not available. The CLT keep the `TestingMacros` plugin in `usr/lib/swift/host/plugins/testing/`, which SwiftPM doesn't search, so `Package.swift` passes `-plugin-path` on the test target. Plain `swift test` just works.
 - **Build:** `swift build -c release` → `.build/release/tidy`.
-- **Install:** copy to `~/.local/bin/tidy` — **only after Damba says yes**, every time.
+- **Install:** copy to `~/.local/bin/tidy` — **only after Damba says yes**, every time: `swift build -c release`, then `mkdir -p ~/.local/bin && cp .build/release/tidy ~/.local/bin/tidy`, then check with `cmp` and `~/.local/bin/tidy --version`.
+  - macOS ships an unrelated `/usr/bin/tidy` (HTML Tidy). His `~/.zshrc` has `export PATH="$HOME/.local/bin:$PATH"` (he added it himself) so ours wins; `which tidy` must say `~/.local/bin/tidy`.
 
 Useful system APIs (so you don't reach for packages):
 - Fast directory scans: `getattrlistbulk` (much faster than `FileManager.enumerator` on big trees); fall back to `fts`/`opendir` if needed.
@@ -243,9 +244,9 @@ The uninstall app picker filters by just typing (no `/`), space selects, Enter c
 4. ✅ **Homebrew** support in `uninstall`.
 5. ✅ **`tidy junk`:** caches → large → dev → orphans (orphans last; most risk of false positives).
 6. ✅ **Main menu** (`tidy` without arguments).
-7. **Release build + install** to `~/.local/bin` — ask first. Check that `~/.local/bin` is in his `PATH`; if not, tell him the line to add himself.
+7. ✅ **Release build + install** to `~/.local/bin` — ask first. Check that `~/.local/bin` is in his `PATH`; if not, tell him the line to add himself.
 8. **Full code review, at max effort**, looking for anything that could remove the wrong thing — before Damba's first real uninstalls (AppCleaner first, then an App Store app he doesn't care about: the first real run of the sudo path).
 
-**Where things stand (2026-10-18):** phases 0–6 are done and tested by Damba with `--dry-run` (the menu: by Claude in a pseudo-terminal, Damba still to try). Real removals have been tried once, on purpose and small (`junk orphans` and `junk caches`, user-owned items only): Trash, log and "Put Back" work. Never run for real yet: the sudo path, `launchctl bootout`, `brew uninstall`, quitting a running app.
+**Where things stand (2026-10-18):** phases 0–7 are done and tested by Damba with `--dry-run`; version 0.1.0 (commit `6b99f8c`) is installed in `~/.local/bin`. Next: phase 8. Real removals have been tried once, on purpose and small (`junk orphans` and `junk caches`, user-owned items only): Trash, log and "Put Back" work. Never run for real yet: the sudo path, `launchctl bootout`, `brew uninstall`, quitting a running app.
 
 Stop and ask whenever a decision isn't covered here instead of guessing.
