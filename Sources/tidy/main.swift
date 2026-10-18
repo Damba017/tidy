@@ -67,7 +67,7 @@ let rest = Array(positional.dropFirst())
 
 switch command {
 case nil:
-    fail("main menu is not implemented yet.", code: 1)
+    exit(runMenu(dryRun: dryRun, junkOptions: junkOptions))
 case "uninstall":
     exit(runUninstall(names: rest, dryRun: dryRun))
 case "disk":

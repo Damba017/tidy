@@ -88,7 +88,7 @@ tidy
   3  Find junk
   q  Quit
 ```
-Number keys or arrows + Enter. Each option drops into the same flow as its subcommand.
+Number keys or arrows + Enter. Each option drops into the same flow as its subcommand (`--dry-run` and the junk flags pass through). Afterwards: "Press Enter for the menu, or q and Enter to quit", so the flow's output stays readable and he can do several things in one go. When stdout/stdin isn't a terminal, `tidy` prints the help instead.
 
 ### `tidy uninstall [name…]`
 Accepts **multiple names** (`tidy uninstall discord firefox fastfetch cava`). With no name, the app list is **multi-select** (space to toggle) with **type-to-filter**: typing narrows the list live (case-insensitive substring on app/package name), backspace widens it again, and selections persist while the filter changes. Each row shows name, size and source; footer shows `N of M · K selected`. Multiple targets are handled as one batch:
@@ -213,7 +213,7 @@ The uninstall app picker filters by just typing (no `/`), space selects, Enter c
 - `Junk.swift` — caches, large & old + dev (one `fts` walk through `~`), orphans.
 - `ReviewList.swift` — the review-list model (groups, checks, search, Tab jumps) and the uninstall picker model.
 
-`Sources/tidy/` (terminal): `main.swift` (arguments), `Prompt.swift` (`ask` y/N, `choose` y/o/N), `DiskCommand.swift`, `UninstallCommand.swift`, `JunkCommand.swift`, `TUI/Terminal.swift` (raw mode, keys, restore on exit/signals), `TUI/ReviewView.swift`, `TUI/Text.swift`.
+`Sources/tidy/` (terminal): `main.swift` (arguments), `Prompt.swift` (`ask` y/N, `choose` y/o/N), `MenuCommand.swift`, `DiskCommand.swift`, `UninstallCommand.swift`, `JunkCommand.swift`, `TUI/Terminal.swift` (raw mode, keys, restore on exit/signals), `TUI/ReviewView.swift`, `TUI/Text.swift`.
 
 ## Development & testing
 
@@ -242,10 +242,10 @@ The uninstall app picker filters by just typing (no `/`), space selects, Enter c
 3. ✅ **`tidy uninstall`** for `.app` bundles.
 4. ✅ **Homebrew** support in `uninstall`.
 5. ✅ **`tidy junk`:** caches → large → dev → orphans (orphans last; most risk of false positives).
-6. **Main menu** (`tidy` without arguments).
+6. ✅ **Main menu** (`tidy` without arguments).
 7. **Release build + install** to `~/.local/bin` — ask first. Check that `~/.local/bin` is in his `PATH`; if not, tell him the line to add himself.
 8. **Full code review, at max effort**, looking for anything that could remove the wrong thing — before Damba's first real uninstalls (AppCleaner first, then an App Store app he doesn't care about: the first real run of the sudo path).
 
-**Where things stand (2026-10-18):** phases 0–5 are done, tested by Damba with `--dry-run`, and pushed. Real removals have been tried once, on purpose and small (`junk orphans` and `junk caches`, user-owned items only): Trash, log and "Put Back" work. Never run for real yet: the sudo path, `launchctl bootout`, `brew uninstall`, quitting a running app.
+**Where things stand (2026-10-18):** phases 0–6 are done and tested by Damba with `--dry-run` (the menu: by Claude in a pseudo-terminal, Damba still to try). Real removals have been tried once, on purpose and small (`junk orphans` and `junk caches`, user-owned items only): Trash, log and "Put Back" work. Never run for real yet: the sudo path, `launchctl bootout`, `brew uninstall`, quitting a running app.
 
 Stop and ask whenever a decision isn't covered here instead of guessing.
