@@ -71,14 +71,24 @@ private func item(_ name: String, checked: Bool = true, size: Int64 = 100) -> Re
     #expect(list.current == .group(1))
     list.jumpToGroup(forward: true)
     #expect(list.current == .group(2))
-    list.jumpToGroup(forward: true)
-    #expect(list.current == .group(2))  // no wrap-around at the end
     list.move(by: 1)
     #expect(list.current == .item(2, 0))
     list.jumpToGroup(forward: false)
     #expect(list.current == .group(2))  // from an item: its own header first
     list.jumpToGroup(forward: false)
     #expect(list.current == .group(1))
+}
+
+@Test func tabGoesRoundAtTheEnds() {
+    var list = ReviewList(groups: [
+        .init(title: "A", detail: "", items: [item("a1")]),
+        .init(title: "B", detail: "", items: [item("b1")]),
+    ])
+    list.jumpToGroup(forward: false)  // ⇧Tab on the first group → the last
+    #expect(list.current == .group(1))
+    list.move(by: 1)                  // on the last group's item
+    list.jumpToGroup(forward: true)   // Tab past the last group → the first
+    #expect(list.current == .group(0))
 }
 
 @Test func searchShowsOnlyMatchesInOpenedGroups() {

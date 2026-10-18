@@ -89,11 +89,12 @@ public struct ReviewList: Sendable {
         cursor = row.flatMap { rows.firstIndex(of: $0) } ?? 0
     }
 
-    /// Tab / ⇧Tab: the next or previous group's header. From an item, ⇧Tab goes to its own header first.
+    /// Tab / ⇧Tab: the next or previous group's header, going round at the ends.
+    /// From an item, ⇧Tab goes to its own header first.
     public mutating func jumpToGroup(forward: Bool) {
         let headers = rows.indices.filter { if case .group = rows[$0] { true } else { false } }
-        let target = forward ? headers.first { $0 > cursor } : headers.last { $0 < cursor }
-        if let target { cursor = target }
+        guard let first = headers.first, let last = headers.last else { return }
+        cursor = forward ? headers.first { $0 > cursor } ?? first : headers.last { $0 < cursor } ?? last
     }
 
     public var current: Row? { rows.indices.contains(cursor) ? rows[cursor] : nil }
