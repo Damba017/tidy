@@ -39,20 +39,34 @@ public enum Leftovers {
 
     /// Everything that belongs to `app`, strongest match first. Reads only.
     public static func find(for app: App) -> [Leftover] {
-        merge(find(for: app, in: locations()) + pkgLeftovers(for: app))
+        merge(find(bundleID: app.bundleID, names: app.names, in: locations()) + pkgLeftovers(for: app))
+    }
+
+    /// The Library leftovers for something with this bundle ID (if any) and these names.
+    public static func find(bundleID: String?, names: [String], home: String = Paths.home) -> [Leftover] {
+        find(bundleID: bundleID, names: names, in: locations(home: home))
     }
 
     /// Looks one level deep in each of `locations`.
-    static func find(for app: App, in locations: [String]) -> [Leftover] {
-        let names = usableNames(of: app)
+    static func find(bundleID: String?, names: [String], in locations: [String]) -> [Leftover] {
+        let names = usableNames(names)
         var found: [Leftover] = []
         for location in locations {
             for entry in AppFinder.contents(of: location) {
-                guard let match = match(entry, bundleID: app.bundleID, names: names) else { continue }
+                guard let match = match(entry, bundleID: bundleID, names: names) else { continue }
                 found.append(Leftover(path: location + "/" + entry, match: match))
             }
         }
         return merge(found)
+    }
+
+    /// What a command-line tool leaves in the home folder: ~/.config/<name>, ~/.cache/<name>,
+    /// ~/.local/share/<name>, ~/.local/state/<name>, ~/.<name> and ~/.<name>rc. Only the ones that exist.
+    public static func dotfiles(for name: String, home: String = Paths.home) -> [Leftover] {
+        guard !name.isEmpty, !name.contains("/") else { return [] }
+        let paths = [".config/", ".cache/", ".local/share/", ".local/state/", "."].map { home + "/" + $0 + name }
+            + [home + "/." + name + "rc"]
+        return merge(paths.filter(Paths.exists).map { Leftover(path: $0, match: .name) })
     }
 
     /// How `entry` (a file or folder name) relates to the app, if at all.
@@ -75,19 +89,19 @@ public enum Leftovers {
         return nil
     }
 
-    /// The app's names in lowercase, minus ones too short or too generic to match on.
-    static func usableNames(of app: App) -> [String] {
+    /// Names in lowercase, minus ones too short or too generic to match on.
+    static func usableNames(_ names: [String]) -> [String] {
         let generic: Set<String> = [
             "app", "application", "applications", "helper", "electron", "launcher", "updater", "update", "installer", "setup",
             "service", "agent", "client", "data", "cache", "caches", "library", "support", "preferences",
             "apple", "mac", "macos", "main", "default",
         ]
-        return app.names.map { $0.lowercased() }.filter { $0.count >= 3 && !generic.contains($0) }
+        return names.map { $0.lowercased() }.filter { $0.count >= 3 && !generic.contains($0) }
     }
 
     /// Files a .pkg installed for this app, found with pkgutil (read-only).
     static func pkgLeftovers(for app: App) -> [Leftover] {
-        let names = usableNames(of: app)
+        let names = usableNames(app.names)
         let packages = pkgutil(["--pkgs"]).split(separator: "\n").map(String.init).filter {
             match($0, bundleID: app.bundleID, names: names) == .bundleID
         }
@@ -110,7 +124,7 @@ public enum Leftovers {
     /// Turns a receipt's file list into leftovers: each file that still exists outside the app bundle,
     /// or the highest folder above it that's named after the app (so a whole support folder is one item).
     static func pkgPaths(files: [String], root: String, app: App) -> [Leftover] {
-        let names = usableNames(of: app)
+        let names = usableNames(app.names)
         var result = Set<String>()
         for file in files {
             let path = Paths.normalize((root as NSString).appendingPathComponent(file))

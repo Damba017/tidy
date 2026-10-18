@@ -61,11 +61,15 @@ private func item(_ name: String, checked: Bool = true, size: Int64 = 100) -> Re
     #expect(list.selectedPaths.count == 3)  // collapsing never unchecks anything
 }
 
-@Test func pickerFiltersAndKeepsSelectionsAcrossFilters() {
-    let apps = ["Discord", "Firefox", "Discord PTB"].map {
-        App(path: "/Applications/\($0).app", bundleID: nil, bundleName: nil, displayName: nil, executable: nil, source: .manual)
+private func candidates(_ names: [String]) -> [Candidate] {
+    names.map {
+        Candidate(app: App(path: "/Applications/\($0).app", bundleID: nil, bundleName: nil, displayName: nil,
+                           executable: nil, source: .manual))
     }
-    var picker = AppPicker(apps: apps)
+}
+
+@Test func pickerFiltersAndKeepsSelectionsAcrossFilters() {
+    var picker = AppPicker(candidates: candidates(["Discord", "Firefox", "Discord PTB"]))
     for c in "DISC" { picker.type(c) }
     #expect(picker.visible.map(\.name) == ["Discord", "Discord PTB"])
     picker.move(by: 1)
@@ -79,10 +83,7 @@ private func item(_ name: String, checked: Bool = true, size: Int64 = 100) -> Re
 }
 
 @Test func enterWithNothingSelectedTakesTheHighlightedApp() {
-    let apps = ["Alpha", "Beta"].map {
-        App(path: "/Applications/\($0).app", bundleID: nil, bundleName: nil, displayName: nil, executable: nil, source: .manual)
-    }
-    var picker = AppPicker(apps: apps)
+    var picker = AppPicker(candidates: candidates(["Alpha", "Beta"]))
     picker.move(by: 1)
     #expect(picker.chosen.map(\.name) == ["Beta"])
 }

@@ -1,0 +1,210 @@
+import Foundation
+import Testing
+@testable import TidyCore
+
+/// The shape `brew info --cask --json=v2 --installed` gives (taken from Homebrew 7.0.9).
+private let casksJSON = """
+{
+  "formulae": [],
+  "casks": [
+    {
+      "token": "discord",
+      "artifacts": [
+        {"uninstall": [{"launchctl": "com.discord.discord.ShipIt", "quit": ["com.hnc.Discord"]}]},
+        {"app": ["Discord.app"], "target": "/Applications/Discord.app"},
+        {"zap": [{"trash": ["~/Library/Application Support/discord"]}]}
+      ]
+    },
+    {"token": "renamed", "artifacts": [{"app": ["Weird Name.app", {"target": "Nice Name.app"}]}]},
+    {"token": "some-font", "artifacts": [{"font": ["SomeFont.ttf"]}]}
+  ]
+}
+"""
+
+/// Stands in for brew: answers queries from a table and records uninstall runs, running nothing.
+final class FakeBrew {
+    var answers: [String: String] = [:]
+    var runs: [[String]] = []
+    var status: Int32 = 0
+
+    func query(_ arguments: [String]) -> String { answers[arguments.joined(separator: " ")] ?? "" }
+
+    func run(_ arguments: [String]) -> Int32 {
+        runs.append(arguments)
+        return status
+    }
+}
+
+@Test func casksAreReadFromBrewJSON() {
+    let casks = Brew.parseCasks(casksJSON)
+    #expect(casks.map(\.name) == ["discord", "renamed", "some-font"])
+    #expect(casks.map(\.apps) == [["Discord.app"], ["Nice Name.app", "Weird Name.app"], []])
+    #expect(Brew.parseCasks("not json").isEmpty)
+}
+
+@Test func installedListsFormulaeAndCasks() {
+    let brew = FakeBrew()
+    brew.answers = [
+        "list --formula": "cava\nfastfetch\n",
+        "list --cask": "discord\n",
+        "info --cask --json=v2 --installed": casksJSON,
+    ]
+    let packages = Brew.installed(query: brew.query)
+    #expect(packages.map(\.name) == ["cava", "fastfetch", "discord"])
+    #expect(packages.map(\.kind) == [.formula, .formula, .cask])
+    #expect(packages[2].apps == ["Discord.app"])
+    #expect(brew.runs.isEmpty)
+}
+
+@Test func aCaskAppIsOneCandidate() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    try makeApp(fx, "apps/Discord.app", bundleID: "com.hnc.Discord")
+    try makeApp(fx, "apps/Godot.app", bundleID: "org.godotengine.godot")
+    try makeApp(fx, "apps/Pages.app", bundleID: "com.apple.iWork.Pages", appStore: true)
+    let packages = [
+        BrewPackage(name: "discord", kind: .cask, apps: ["Discord.app"]),
+        BrewPackage(name: "fastfetch", kind: .formula, apps: []),
+    ]
+
+    let candidates = Candidates.combine(apps: AppFinder.installedApps(in: [fx.root + "/apps"]), packages: packages)
+
+    #expect(candidates.map(\.name) == ["Discord", "fastfetch", "Godot", "Pages"])
+    #expect(candidates.map(\.source) == [.brewCask, .brewFormula, .manual, .appStore])
+    #expect(candidates[0].path == fx.root + "/apps/Discord.app")
+    #expect(candidates[1].path == "/opt/homebrew/Cellar/fastfetch")
+    #expect(candidates[0].names == ["Discord"])  // the cask token "discord" is the same name, listed once
+}
+
+@Test func uninstallArgumentsOnlyZapWhenAsked() {
+    let cask = BrewPackage(name: "discord", kind: .cask, apps: [])
+    let formula = BrewPackage(name: "fastfetch", kind: .formula, apps: [])
+    #expect(Brew.uninstallArguments(formula, zap: false) == ["uninstall", "fastfetch"])
+    #expect(Brew.uninstallArguments(cask, zap: false) == ["uninstall", "--cask", "discord"])
+    #expect(Brew.uninstallArguments(cask, zap: true) == ["uninstall", "--zap", "--cask", "discord"])
+}
+
+@Test func dotfilesOfACommandLineTool() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    try fx.file("home/.config/tidytesttool/config.toml")
+    try fx.folder("home/.cache/tidytesttool")
+    try fx.file("home/.tidytesttoolrc")
+    try fx.file("home/.config/other/x")
+
+    let found = Leftovers.dotfiles(for: "tidytesttool", home: fx.home)
+
+    #expect(found.map(\.path).sorted() == [
+        fx.home + "/.cache/tidytesttool", fx.home + "/.config/tidytesttool", fx.home + "/.tidytesttoolrc",
+    ])
+    #expect(found.allSatisfy { $0.match == .name })
+    #expect(Leftovers.dotfiles(for: "../etc", home: fx.home).isEmpty)
+}
+
+// MARK: - The brew flow, with fake brew and the fake Trash
+
+private func formula(_ name: String) -> Candidate {
+    Candidate(package: BrewPackage(name: name, kind: .formula, apps: []))
+}
+
+/// Runs BrewFlow with fakes for brew, the questions and the safety core.
+private func flow(_ candidate: Candidate, in fx: Fixture, _ t: Transcript, _ brew: FakeBrew, dryRun: Bool = false) -> Bool {
+    BrewFlow.run(
+        candidate, dryRun: dryRun, say: t.say, ask: t.ask, home: fx.home, query: brew.query, brew: brew.run,
+        remove: { plan in
+            _ = Remover.run(plan, dryRun: dryRun, say: t.say, ask: t.ask, log: fx.log, sudo: t.sudo,
+                            launchctl: t.launchctl, trashItem: fx.trash)
+        })
+}
+
+@Test func dryRunNeverRunsBrewAndOnlyShowsTheLeftovers() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let config = try fx.file("home/.config/tidytesttool/config")
+    let brew = FakeBrew()
+    let t = Transcript()
+    t.answer = true
+
+    #expect(flow(formula("tidytesttool"), in: fx, t, brew, dryRun: true))
+
+    #expect(brew.runs.isEmpty)
+    #expect(t.questions.isEmpty)
+    #expect(t.lines.contains("--dry-run: would run: brew uninstall tidytesttool"))
+    #expect(t.lines.contains { $0.contains(config) || $0.contains("/.config/tidytesttool") })
+    #expect(Paths.exists(config))
+}
+
+@Test func sayingNoSkipsBrewAndTheLeftovers() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let config = try fx.file("home/.config/tidytesttool/config")
+    let brew = FakeBrew()
+    let t = Transcript()
+
+    #expect(!flow(formula("tidytesttool"), in: fx, t, brew))
+
+    #expect(brew.runs.isEmpty)
+    #expect(t.questions == ["Uninstall tidytesttool (via brew)?"])
+    #expect(Paths.exists(config))
+}
+
+@Test func yesRunsBrewThenOffersTheLeftoversForTheTrash() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let config = try fx.folder("home/.config/tidytesttool")
+    let brew = FakeBrew()
+    let t = Transcript()
+    t.answers = [true, true]
+
+    #expect(flow(formula("tidytesttool"), in: fx, t, brew))
+
+    #expect(brew.runs == [["uninstall", "tidytesttool"]])
+    #expect(t.questions.count == 2)
+    #expect(t.questions[1].hasPrefix("Move 1 item"))
+    #expect(!Paths.exists(config))
+    #expect(fx.trashed() == ["tidytesttool"])
+}
+
+@Test func failedBrewUninstallLeavesTheLeftoversAlone() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let config = try fx.folder("home/.config/tidytesttool")
+    let brew = FakeBrew()
+    brew.status = 1
+    let t = Transcript()
+    t.answer = true
+
+    #expect(!flow(formula("tidytesttool"), in: fx, t, brew))
+
+    #expect(t.questions.count == 1)
+    #expect(Paths.exists(config))
+}
+
+@Test func dependentsAreWarnedAbout() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let brew = FakeBrew()
+    brew.answers = ["uses --installed fftw": "cava\n"]
+    let t = Transcript()
+
+    _ = flow(formula("fftw"), in: fx, t, brew, dryRun: true)
+
+    #expect(t.lines.contains { $0.hasPrefix("Warning: cava depends on fftw") })
+}
+
+@Test func casksAskAboutZapAndDefaultToNo() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let cask = Candidate(package: BrewPackage(name: "tidytestcask", kind: .cask, apps: []))
+    let brew = FakeBrew()
+
+    let noZap = Transcript()
+    noZap.answers = [true, false]
+    _ = flow(cask, in: fx, noZap, brew)
+    let zap = Transcript()
+    zap.answers = [true, true]
+    _ = flow(cask, in: fx, zap, brew)
+
+    #expect(noZap.questions == ["Uninstall tidytestcask (via brew)?", "Use --zap?"])
+    #expect(brew.runs == [["uninstall", "--cask", "tidytestcask"], ["uninstall", "--zap", "--cask", "tidytestcask"]])
+}

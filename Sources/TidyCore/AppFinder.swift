@@ -66,17 +66,6 @@ public enum AppFinder {
             source: receipt ? .appStore : .manual)
     }
 
-    /// Apps that match `query`, ignoring case: exact name or bundle ID matches if there are any,
-    /// otherwise every app with `query` somewhere in one of its names.
-    public static func matches(_ query: String, in apps: [App]) -> [App] {
-        let query = query.lowercased()
-        let exact = apps.filter { app in
-            app.names.contains { $0.lowercased() == query } || app.bundleID?.lowercased() == query
-        }
-        if !exact.isEmpty { return exact }
-        return apps.filter { app in app.names.contains { $0.lowercased().contains(query) } }
-    }
-
     static func contents(of folder: String) -> [String] {
         ((try? FileManager.default.contentsOfDirectory(atPath: folder)) ?? []).sorted()
     }

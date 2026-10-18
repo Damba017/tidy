@@ -118,20 +118,20 @@ public struct ReviewList: Sendable {
     }
 }
 
-/// The app list for `tidy uninstall` without names: type to filter, space to select.
+/// The list for `tidy uninstall` without names (apps and brew packages): type to filter, space to select.
 public struct AppPicker: Sendable {
-    public let apps: [App]
+    public let candidates: [Candidate]
     public private(set) var filter = ""
-    public private(set) var selected = Set<String>()  // app paths; kept while the filter changes
+    public private(set) var selected = Set<String>()  // candidate paths; kept while the filter changes
     public private(set) var cursor = 0
 
-    public init(apps: [App]) {
-        self.apps = apps
+    public init(candidates: [Candidate]) {
+        self.candidates = candidates
     }
 
-    public var visible: [App] {
-        guard !filter.isEmpty else { return apps }
-        return apps.filter { app in app.names.contains { $0.localizedCaseInsensitiveContains(filter) } }
+    public var visible: [Candidate] {
+        guard !filter.isEmpty else { return candidates }
+        return candidates.filter { candidate in candidate.names.contains { $0.localizedCaseInsensitiveContains(filter) } }
     }
 
     public mutating func type(_ character: Character) {
@@ -155,9 +155,9 @@ public struct AppPicker: Sendable {
         if selected.remove(path) == nil { selected.insert(path) }
     }
 
-    /// What Enter means: the selected apps, or the highlighted one when nothing is selected.
-    public var chosen: [App] {
-        if !selected.isEmpty { return apps.filter { selected.contains($0.path) } }
+    /// What Enter means: the selected ones, or the highlighted one when nothing is selected.
+    public var chosen: [Candidate] {
+        if !selected.isEmpty { return candidates.filter { selected.contains($0.path) } }
         let shown = visible
         return shown.indices.contains(cursor) ? [shown[cursor]] : []
     }

@@ -39,12 +39,15 @@ func makeApp(_ fx: Fixture, _ relative: String, bundleID: String, name: String? 
     try makeApp(fx, "apps/Discord.app", bundleID: "com.hnc.Discord")
     try makeApp(fx, "apps/Discord PTB.app", bundleID: "com.hnc.DiscordPTB")
     try makeApp(fx, "apps/Firefox.app", bundleID: "org.mozilla.firefox", name: "Firefox")
-    let apps = AppFinder.installedApps(in: [fx.root + "/apps"])
+    let candidates = Candidates.combine(
+        apps: AppFinder.installedApps(in: [fx.root + "/apps"]),
+        packages: [BrewPackage(name: "fastfetch", kind: .formula, apps: [])])
 
-    #expect(AppFinder.matches("discord", in: apps).map(\.name) == ["Discord"])
-    #expect(AppFinder.matches("DISC", in: apps).map(\.name) == ["Discord", "Discord PTB"])
-    #expect(AppFinder.matches("org.mozilla.firefox", in: apps).map(\.name) == ["Firefox"])
-    #expect(AppFinder.matches("nope", in: apps).isEmpty)
+    #expect(Candidates.matches("discord", in: candidates).map(\.name) == ["Discord"])
+    #expect(Candidates.matches("DISC", in: candidates).map(\.name) == ["Discord", "Discord PTB"])
+    #expect(Candidates.matches("org.mozilla.firefox", in: candidates).map(\.name) == ["Firefox"])
+    #expect(Candidates.matches("FASTFETCH", in: candidates).map(\.source) == [.brewFormula])
+    #expect(Candidates.matches("nope", in: candidates).isEmpty)
 }
 
 @Test(arguments: [
@@ -72,7 +75,7 @@ func unrelatedEntriesDontMatch(entry: String) {
 @Test func genericAndShortNamesAreNotUsed() {
     let app = App(path: "/Applications/Go.app", bundleID: "com.example.go", bundleName: "Electron",
                   displayName: nil, executable: "Helper", source: .manual)
-    #expect(Leftovers.usableNames(of: app).isEmpty)
+    #expect(Leftovers.usableNames(app.names).isEmpty)
 }
 
 @Test func findsLeftoversInLibraryFolders() throws {
@@ -90,7 +93,7 @@ func unrelatedEntriesDontMatch(entry: String) {
     try fx.file("lib/Preferences/com.apple.finder.plist")
     let locations = ["Application Support", "Caches", "Preferences", "Group Containers"].map { fx.root + "/lib/" + $0 }
 
-    let found = Leftovers.find(for: app, in: locations)
+    let found = Leftovers.find(bundleID: app.bundleID, names: app.names, in: locations)
 
     // Strongest match first, then by full path (Caches, Group Containers, Preferences).
     #expect(found.map { ($0.path as NSString).lastPathComponent } == [

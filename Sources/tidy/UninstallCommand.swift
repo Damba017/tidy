@@ -1,24 +1,26 @@
 import Foundation
 import TidyCore
 
-/// `tidy uninstall [name...]`: find the apps, quit them, review app + leftovers, then the safety core.
+/// `tidy uninstall [name...]`: find what to remove, quit running apps, then the .app part (review +
+/// safety core) and after that the brew flow per package. Saying no in one part skips only that part.
 func runUninstall(names: [String], dryRun: Bool) -> Int32 {
     let interactive = isatty(STDIN_FILENO) == 1 && isatty(STDOUT_FILENO) == 1
-    let apps = AppFinder.installedApps()
-    var targets: [App] = []
-    func add(_ app: App) {
-        if !targets.contains(app) { targets.append(app) }
+    if Brew.isInstalled { print("Asking Homebrew what's installed…") }
+    let candidates = Candidates.all()
+    var targets: [Candidate] = []
+    func add(_ candidate: Candidate) {
+        if !targets.contains(candidate) { targets.append(candidate) }
     }
 
     if names.isEmpty {
         guard interactive else {
-            FileHandle.standardError.write(Data("tidy: give one or more app names when not running in a terminal.\n".utf8))
+            FileHandle.standardError.write(Data("tidy: give one or more names when not running in a terminal.\n".utf8))
             return 2
         }
-        print("Measuring \(apps.count) apps…")
-        let sizes = measure(apps.map(\.path))
+        print("Measuring \(candidates.count) apps and packages…")
+        let sizes = measure(candidates.map(\.path))
         Terminal.start()
-        let picked = pickApps(apps, sizes: sizes, dryRun: dryRun)
+        let picked = pick(candidates, sizes: sizes, dryRun: dryRun)
         Terminal.stop()
         guard let picked, !picked.isEmpty else {
             print("Nothing selected; nothing was changed.")
@@ -27,17 +29,17 @@ func runUninstall(names: [String], dryRun: Bool) -> Int32 {
         picked.forEach(add)
     } else {
         for name in names {
-            // A path to a .app (e.g. one outside /Applications) is taken as is.
+            // A path to a .app (e.g. one outside /Applications) is taken as is; one a cask owns still goes via brew.
             if name.contains("/") || name.lowercased().hasSuffix(".app"), let app = AppFinder.load(Paths.normalize(name)) {
-                add(app)
+                add(candidates.first { $0.app?.path == app.path } ?? Candidate(app: app))
                 continue
             }
-            let found = AppFinder.matches(name, in: apps)
+            let found = Candidates.matches(name, in: candidates)
             switch found.count {
-            case 0: print("No app matches \"\(name)\"; skipped.")
+            case 0: print("Nothing matches \"\(name)\"; skipped.")
             case 1: add(found[0])
             default:
-                if let app = pickOne(name, from: found, interactive: interactive) { add(app) } else { print("Skipped \"\(name)\".") }
+                if let choice = pickOne(name, from: found, interactive: interactive) { add(choice) } else { print("Skipped \"\(name)\".") }
             }
         }
     }
@@ -47,31 +49,43 @@ func runUninstall(names: [String], dryRun: Bool) -> Int32 {
     }
 
     print("")
-    print("Found \(targets.count == 1 ? "1 app" : "\(targets.count) apps"):")
-    for app in targets {
-        print("  \(app.name)  ·  \(app.source.rawValue)  ·  \(app.path)")
+    print("Found \(targets.count):")
+    for candidate in targets {
+        print("  \(candidate.name)  ·  \(candidate.source.rawValue)  ·  \(candidate.path)")
     }
 
-    let running = targets.filter(RunningApps.isRunning)
+    let running = targets.filter { $0.app.map(RunningApps.isRunning) ?? false }
     if !running.isEmpty {
         let list = running.map(\.name).joined(separator: ", ")
         let one = running.count == 1
         if dryRun {
             print("--dry-run: would ask to quit \(list) first.")
         } else if ask("\(list) \(one ? "is" : "are") running. Quit \(one ? "it" : "them") now?") {
-            for app in running where !RunningApps.quit(app) {
-                print("\(app.name) didn't quit, so it's skipped. Quit it yourself and run tidy again.")
-                targets.removeAll { $0 == app }
+            for candidate in running where !RunningApps.quit(candidate.app!) {
+                print("\(candidate.name) didn't quit, so it's skipped. Quit it yourself and run tidy again.")
+                targets.removeAll { $0 == candidate }
             }
         } else {
             print("Skipped \(list): \(one ? "it's" : "they're") still running.")
             targets.removeAll { running.contains($0) }
         }
-        guard !targets.isEmpty else { return 0 }
     }
 
+    var ok = true
+    let apps = targets.filter { $0.package == nil }.compactMap(\.app)
+    if !apps.isEmpty { ok = uninstallApps(apps, dryRun: dryRun, interactive: interactive) }
+    for candidate in targets where candidate.package != nil {
+        print("")
+        _ = BrewFlow.run(candidate, dryRun: dryRun, say: { print($0) }, ask: ask)
+    }
+    return ok ? 0 : 1
+}
+
+/// The .app part: one review list for all apps and their leftovers, then the safety core.
+/// False if something failed to move.
+private func uninstallApps(_ apps: [App], dryRun: Bool, interactive: Bool) -> Bool {
     print("Looking for leftovers…")
-    let found = targets.map(group(for:))
+    let found = apps.map(group(for:))
     let list = ReviewList(groups: found.map(\.group))
     let privacyProtected = found.flatMap(\.privacyProtected)
     let selected: [String]
@@ -80,8 +94,8 @@ func runUninstall(names: [String], dryRun: Bool) -> Int32 {
         let result = review(list, title: "uninstall", dryRun: dryRun)
         Terminal.stop()
         guard let result else {
-            print("Cancelled; nothing was changed.")
-            return 0
+            print("Cancelled; no apps were changed.")
+            return true
         }
         selected = result
     } else {
@@ -96,8 +110,8 @@ func runUninstall(names: [String], dryRun: Bool) -> Int32 {
         print("then run tidy again.")
     }
     guard !selected.isEmpty else {
-        print("Nothing selected; nothing was changed.")
-        return 0
+        print("Nothing selected; no apps were changed.")
+        return true
     }
 
     // Ticked fuzzy matches get their own block and question in the plan.
@@ -105,7 +119,7 @@ func runUninstall(names: [String], dryRun: Bool) -> Int32 {
     let fuzzy = list.groups.flatMap { $0.items.filter { $0.label == fuzzyLabel }.map(\.path) }
     print("")
     let result = Remover.run(RemovalPlan(paths: selected, fuzzy: fuzzy), dryRun: dryRun, say: { print($0) }, ask: ask)
-    return result.failed > 0 ? 1 : 0
+    return result.failed == 0
 }
 
 /// The app bundle plus everything it left behind, as one group of the review list.
@@ -131,30 +145,30 @@ private func group(for app: App) -> (group: ReviewList.Group, privacyProtected: 
     return (group, privacyProtected)
 }
 
-/// Several apps match `name`: let the user pick one by number.
-private func pickOne(_ name: String, from apps: [App], interactive: Bool) -> App? {
-    print("\"\(name)\" matches \(apps.count) apps:")
-    for (index, app) in apps.enumerated() {
-        print("  \(index + 1)  \(fit(app.name, 24))  \(fit(app.source.rawValue, 9))  \(app.path)")
+/// Several candidates match `name`: let the user pick one by number.
+private func pickOne(_ name: String, from candidates: [Candidate], interactive: Bool) -> Candidate? {
+    print("\"\(name)\" matches \(candidates.count):")
+    for (index, candidate) in candidates.enumerated() {
+        print("  \(index + 1)  \(fit(candidate.name, 24))  \(fit(candidate.source.rawValue, 16))  \(candidate.path)")
     }
     guard interactive else { return nil }
     print("Which one? (number, Enter to skip) ", terminator: "")
     fflush(stdout)
     guard let line = readLine(), let number = Int(line.trimmingCharacters(in: .whitespaces)),
-          apps.indices.contains(number - 1) else { return nil }
-    return apps[number - 1]
+          candidates.indices.contains(number - 1) else { return nil }
+    return candidates[number - 1]
 }
 
-/// The multi-select app list: type to filter, space to select, Enter to continue.
-private func pickApps(_ apps: [App], sizes: [String: Int64], dryRun: Bool) -> [App]? {
-    var picker = AppPicker(apps: apps)
+/// The multi-select list of apps and brew packages: type to filter, space to select, Enter to continue.
+private func pick(_ candidates: [Candidate], sizes: [String: Int64], dryRun: Bool) -> [Candidate]? {
+    var picker = AppPicker(candidates: candidates)
     var top = 0
     while true {
         let (height, width) = Terminal.size()
         let w = max(20, width - 1)
         let shown = picker.visible
         var lines = [
-            fit("tidy uninstall  pick apps" + (dryRun ? "   [dry-run]" : ""), w),
+            fit("tidy uninstall  pick what to remove" + (dryRun ? "   [dry-run]" : ""), w),
             fit(picker.filter.isEmpty ? "type to filter" : "filter: \(picker.filter)▏", w),
             String(repeating: "─", count: w),
         ]
@@ -162,15 +176,16 @@ private func pickApps(_ apps: [App], sizes: [String: Int64], dryRun: Bool) -> [A
         if picker.cursor < top { top = picker.cursor }
         if picker.cursor >= top + listHeight { top = picker.cursor - listHeight + 1 }
         for index in shown.indices.dropFirst(top).prefix(listHeight) {
-            let app = shown[index]
-            let mark = picker.selected.contains(app.path) ? "[x]" : "[ ]"
-            let line = fit("  \(mark) \(fit(app.name, 32))  \(rightAligned(Size.format(sizes[app.path] ?? 0), 8))  \(app.source.rawValue)", w)
+            let candidate = shown[index]
+            let mark = picker.selected.contains(candidate.path) ? "[x]" : "[ ]"
+            let size = rightAligned(Size.format(sizes[candidate.path] ?? 0), 8)
+            let line = fit("  \(mark) \(fit(candidate.name, 32))  \(size)  \(candidate.source.rawValue)", w)
             lines.append(index == picker.cursor ? reverseVideo + line + resetStyle : line)
         }
-        if shown.isEmpty { lines.append(fit("  (no app matches \"\(picker.filter)\")", w)) }
+        if shown.isEmpty { lines.append(fit("  (nothing matches \"\(picker.filter)\")", w)) }
         while lines.count < height - 3 { lines.append("") }
         lines.append(String(repeating: "─", count: w))
-        lines.append(fit("\(shown.count) of \(apps.count) · \(picker.selected.count) selected", w))
+        lines.append(fit("\(shown.count) of \(candidates.count) · \(picker.selected.count) selected", w))
         lines.append(fit("type to filter · ↑↓ move · space select · enter continue · esc cancel", w))
         Terminal.draw(lines)
 
