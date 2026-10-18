@@ -110,6 +110,29 @@ func plainNamesAreNoBundleIDs(entry: String) {
     #expect(walked.dev.allSatisfy { $0.checked })
 }
 
+@Test func virtualEnvironmentsAreOneItemOrNothing() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    // Stale bot with a manifest: its .venv is one item, nothing inside it is listed.
+    try fx.file("home/oldbot/pyproject.toml")
+    try fx.file("home/oldbot/bot/__pycache__/main.pyc")
+    try fx.file("home/oldbot/.venv/pyvenv.cfg")
+    try fx.file("home/oldbot/.venv/lib/python3.15/site-packages/telegram/__pycache__/x.pyc")
+    for path in ["oldbot/pyproject.toml", "oldbot/bot"] { age(fx.home + "/" + path, days: 90) }
+    // Fresh project: its venv stays. A venv without any manifest: never offered.
+    try fx.file("home/newbot/requirements.txt")
+    try fx.file("home/newbot/venv/pyvenv.cfg")
+    try fx.file("home/scratch/env/pyvenv.cfg")
+    for path in ["scratch"] { age(fx.home + "/" + path, days: 90) }
+    // uv's own Pythons are never looked into.
+    try fx.file("home/.local/share/uv/python/cpython-3.15/lib/json/__pycache__/x.pyc")
+
+    let walked = Junk.walk(home: fx.home, options: JunkOptions(), now: Date())
+
+    #expect(walked.dev.map(\.path).sorted() == [fx.home + "/oldbot/.venv", fx.home + "/oldbot/bot/__pycache__"])
+    #expect(walked.dev.first { $0.path.hasSuffix(".venv") }?.label == "Python virtual environment")
+}
+
 @Test func largeListIsCappedBiggestFirst() throws {
     let fx = try Fixture()
     defer { fx.remove() }

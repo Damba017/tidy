@@ -92,7 +92,8 @@ private func text(of row: ReviewList.Row, in list: ReviewList) -> String {
     case .group(let g):
         let group = list.groups[g]
         let checked = group.items.filter(\.checked).count
-        return (group.expanded ? "▾ " : "▸ ") + checkbox(group.state) + " " + group.title + "   " + group.detail
+        let open = group.expanded || !list.search.isEmpty  // a search opens every group with matches
+        return (open ? "▾ " : "▸ ") + checkbox(group.state) + " " + group.title + "   " + group.detail
             + "   \(checked) of \(group.items.count) · \(Size.format(group.checkedSize))"
             + (group.needsSudo ? "   [needs sudo]" : "")
     case .item(let g, let i):

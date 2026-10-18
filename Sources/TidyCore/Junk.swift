@@ -150,6 +150,10 @@ public enum Junk {
         "__pycache__": (nil, "Python cache", false),
     ]
 
+    /// A Python virtual environment (any folder with a pyvenv.cfg) is offered whole, and only next to
+    /// one of these: without them it can't easily be set up again.
+    static let pythonManifests = ["pyproject.toml", "requirements.txt", "uv.lock", "Pipfile", "setup.py"]
+
     static func walk(home: String, options: JunkOptions, now: Date) -> (large: [JunkItem], largeLeftOut: Int, dev: [JunkItem]) {
         let oldBefore = now.addingTimeInterval(-Double(options.olderThanDays) * 86_400)
         let staleBefore = now.addingTimeInterval(-Double(options.staleDays) * 86_400)
@@ -172,13 +176,23 @@ public enum Junk {
             let name = (path as NSString).lastPathComponent
             if info == FTS_D {
                 if path == home { continue }
-                if path == home + "/Library" || path == home + "/.Trash" || name == ".git" {
+                if path == home + "/Library" || path == home + "/.Trash" || name == ".git"
+                    || path == home + "/.local/share/uv" {  // uv's own Pythons and tools
                     fts_set(fts, entry, FTS_SKIP)
+                } else if Paths.exists(path + "/pyvenv.cfg") {
+                    // Never look inside a virtual environment; a stale project's one is offered whole.
+                    fts_set(fts, entry, FTS_SKIP)
+                    let project = Paths.parent(path)
+                    if pythonManifests.contains(where: { Paths.exists(project + "/" + $0) }),
+                       (lastChange(in: project, ignoring: name) ?? now) < staleBefore {
+                        dev.append(JunkItem(path: path, label: "Python virtual environment", group: groupDev,
+                                            checked: true, note: nil))
+                    }
                 } else if let build = buildFolders[name] {
                     fts_set(fts, entry, FTS_SKIP)
                     let project = Paths.parent(path)
                     guard build.manifest.map({ Paths.exists(project + "/" + $0) }) ?? true else { continue }
-                    if !build.stale || (lastChange(in: project) ?? now) < staleBefore {
+                    if !build.stale || (lastChange(in: project, ignoring: name) ?? now) < staleBefore {
                         dev.append(JunkItem(path: path, label: build.label, group: groupDev, checked: true, note: nil))
                     }
                 } else if packageExtensions.contains((name as NSString).pathExtension.lowercased()) {
@@ -202,10 +216,10 @@ public enum Junk {
         return (shown, max(0, large.count - options.largeLimit), dev)
     }
 
-    /// The most recent change to anything directly in `folder`, build folders left out.
-    static func lastChange(in folder: String) -> Date? {
+    /// The most recent change to anything directly in `folder`, build folders and `ignoring` left out.
+    static func lastChange(in folder: String, ignoring: String) -> Date? {
         AppFinder.contents(of: folder)
-            .filter { buildFolders[$0] == nil && $0 != ".DS_Store" }
+            .filter { buildFolders[$0] == nil && $0 != ".DS_Store" && $0 != ignoring }
             .compactMap { modified(folder + "/" + $0) }
             .max()
     }
