@@ -8,16 +8,19 @@ public enum Denylist {
         let path = Paths.normalize(path)
         let home = Paths.realPath(home) ?? home
         guard path.hasPrefix("/"), path != "/" else { return "root of the disk" }
-        if path == home { return "your home folder" }
+        // And compare without case, like the disk does: ~/library is ~/Library.
+        let lower = path.lowercased()
+        if lower == home.lowercased() { return "your home folder" }
 
         for (tree, why) in trees(home: home) {
-            if path == tree || path.hasPrefix(tree + "/") {
-                if tree == "/usr" && (path == "/usr/local" || path.hasPrefix("/usr/local/")) { continue }
+            let treeLower = tree.lowercased()
+            if lower == treeLower || lower.hasPrefix(treeLower + "/") {
+                if tree == "/usr" && (lower == "/usr/local" || lower.hasPrefix("/usr/local/")) { continue }
                 return why
             }
-            if tree.hasPrefix(path + "/") { return "contains \(Paths.display(tree))" }
+            if treeLower.hasPrefix(lower + "/") { return "contains \(Paths.display(tree))" }
         }
-        if folders(home: home).contains(path) {
+        if folders(home: home).contains(where: { $0.lowercased() == lower }) {
             return "standard folder, only what's inside may go"
         }
 

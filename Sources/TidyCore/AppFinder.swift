@@ -69,6 +69,13 @@ public enum AppFinder {
             source: receipt ? .appStore : .manual)
     }
 
+    /// True for an app bundle: a real folder named *.app with an Info.plist (in Contents/, or in
+    /// WrappedBundle/ for an iPhone/iPad app). Any other folder is never taken for an app.
+    public static func isAppBundle(_ path: String) -> Bool {
+        path.lowercased().hasSuffix(".app") && isRealFolder(path)
+            && (Paths.exists(path + "/Contents/Info.plist") || Paths.exists(path + "/WrappedBundle/Info.plist"))
+    }
+
     static func contents(of folder: String) -> [String] {
         ((try? FileManager.default.contentsOfDirectory(atPath: folder)) ?? []).sorted()
     }

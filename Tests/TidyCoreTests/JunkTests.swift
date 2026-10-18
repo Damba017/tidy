@@ -133,6 +133,46 @@ func plainNamesAreNoBundleIDs(entry: String) {
     #expect(walked.dev.first { $0.path.hasSuffix(".venv") }?.label == "Python virtual environment")
 }
 
+@Test func toolInstallsInHiddenFoldersAreNoDevJunk() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    // An editor extension, a global package install and a tool's own venv: all part of an install.
+    try fx.file("home/.vscode/extensions/some.ext-1.0.0/package.json")
+    try fx.file("home/.vscode/extensions/some.ext-1.0.0/node_modules/dep/index.js")
+    try fx.file("home/.bun/install/global/package.json")
+    try fx.file("home/.bun/install/global/node_modules/tool/index.js")
+    try fx.file("home/.config/tool/pyproject.toml")
+    try fx.file("home/.config/tool/.venv/pyvenv.cfg")
+    for path in ["home/.vscode/extensions/some.ext-1.0.0/package.json", "home/.bun/install/global/package.json",
+                 "home/.config/tool/pyproject.toml"] {
+        age(fx.root + "/" + path, days: 90)
+    }
+    let big = try fx.file("home/.vscode/big.bin", bytes: 300_000)  // large files in there still count
+    var options = JunkOptions()
+    options.minSize = 200_000
+
+    let walked = Junk.walk(home: fx.home, options: options, now: Date())
+
+    #expect(walked.dev.isEmpty)
+    #expect(walked.large.map(\.path) == [big])
+}
+
+@Test func aVenvWithYourOwnCodeInItIsNeverOffered() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    // `python -m venv .` in a subproject: the venv is the folder that holds the code.
+    try fx.file("home/mono/pyproject.toml")
+    try fx.file("home/mono/svc/pyvenv.cfg")
+    try fx.file("home/mono/svc/bin/python")
+    try fx.file("home/mono/svc/main.py")
+    age(fx.home + "/mono/pyproject.toml", days: 90)
+
+    let walked = Junk.walk(home: fx.home, options: JunkOptions(), now: Date())
+
+    #expect(walked.dev.isEmpty)
+    #expect(!Junk.isPlainVenv(fx.home + "/mono/svc"))
+}
+
 @Test func largeListIsCappedBiggestFirst() throws {
     let fx = try Fixture()
     defer { fx.remove() }

@@ -29,10 +29,16 @@ func runUninstall(names: [String], dryRun: Bool) -> Int32 {
         picked.forEach(add)
     } else {
         for name in names {
-            // A path to a .app (e.g. one outside /Applications) is taken as is; one a cask owns still goes via brew.
-            if name.contains("/") || name.lowercased().hasSuffix(".app"), let app = AppFinder.load(Paths.normalize(name)) {
-                add(candidates.first { $0.app?.path == app.path } ?? Candidate(app: app))
-                continue
+            // A path to an app bundle is taken as is; one a cask owns still goes via brew. Any other path is refused.
+            if name.contains("/") || name.lowercased().hasSuffix(".app") {
+                if let candidate = Candidates.app(at: name, in: candidates) {
+                    add(candidate)
+                    continue
+                }
+                if name.contains("/") {
+                    print("Not an app (a folder ending in .app, with an Info.plist): \(Paths.display(Paths.normalize(name))); skipped.")
+                    continue
+                }
             }
             let found = Candidates.matches(name, in: candidates)
             switch found.count {

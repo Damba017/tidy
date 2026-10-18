@@ -56,6 +56,14 @@ public enum Candidates {
         return result.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
+    /// What a path to an app bundle (e.g. one outside /Applications) stands for: the cask that owns it,
+    /// or else the app itself. Nil for anything that isn't an app bundle.
+    public static func app(at path: String, in candidates: [Candidate]) -> Candidate? {
+        let path = Paths.normalize(path)
+        guard AppFinder.isAppBundle(path), let app = AppFinder.load(path) else { return nil }
+        return candidates.first { $0.app?.path == app.path } ?? Candidate(app: app)
+    }
+
     /// Candidates that match `query`, ignoring case: exact name or bundle ID matches if there are any,
     /// otherwise every candidate with `query` somewhere in one of its names.
     public static func matches(_ query: String, in candidates: [Candidate]) -> [Candidate] {

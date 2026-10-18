@@ -29,6 +29,8 @@ import Testing
     "~/.Trash", "~/.Trash/something", "~/.local/state/tidy/log", "~/.ssh/id_ed25519",
     "/System/Volumes/Data", "/System/Volumes/Data/Users", "/System/Volumes/Data/.Spotlight-V100",
     "/private/tmp", "/tmp",
+    // The disk ignores case, so the denylist does too.
+    "~/LIBRARY", "~/library/keychains", "~/applications", "~/.local/state/TIDY", "/APPLICATIONS", "/system/library",
 ])
 func protectedPathsAreRefused(path: String) {
     #expect(Denylist.reason(for: Paths.normalize(path)) != nil, "\(path) should be protected")
@@ -41,6 +43,37 @@ func protectedPathsAreRefused(path: String) {
 ])
 func ordinaryPathsMayBeOffered(path: String) {
     #expect(Denylist.reason(for: Paths.normalize(path)) == nil, "\(path) should be allowed")
+}
+
+@Test func normalizeTakesTheCaseFromTheDisk() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    try fx.folder("home/Library/Keychains")
+    try FileManager.default.createSymbolicLink(atPath: fx.root + "/Link", withDestinationPath: fx.home)
+
+    #expect(Paths.normalize(fx.home + "/library") == fx.home + "/Library")
+    #expect(Paths.normalize(fx.home + "/LIBRARY/keychains") == fx.home + "/Library/Keychains")
+    #expect(Paths.normalize(fx.root + "/LINK") == fx.root + "/Link")  // the link's own name, not its target's
+    #expect(Paths.normalize(fx.home + "/Nope") == fx.home + "/Nope")  // not there: as typed
+}
+
+@Test func caseNeverGetsPastTheDenylist() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    try fx.folder("home/Library/Keychains")
+    try fx.folder("home/Applications")
+    try fx.folder("home/.local/state/tidy")
+
+    // .SSH isn't there, so normalize can't fix its case: the denylist itself ignores case.
+    for path in ["/library/KEYCHAINS", "/LIBRARY", "/applications", "/.local/state/TIDY", "/.LOCAL", "/.SSH"] {
+        #expect(Denylist.reason(for: fx.home + path, home: fx.home) != nil, "\(path) should be protected")
+        #expect(throws: TidyError.self) { try Trash.move(fx.home + path, home: fx.home, using: fx.trash) }
+    }
+    let plan = RemovalPlan(paths: [fx.home + "/applications", fx.home + "/Applications"], home: fx.home)
+    #expect(plan.items.map(\.path) == [fx.home + "/Applications"])  // one folder, however it's spelled
+    #expect(plan.items.map(\.status) == [.blocked("standard folder, only what's inside may go")])
+    #expect(fx.trashed().isEmpty)
+    #expect(Paths.exists(fx.home + "/Applications"))
 }
 
 @Test func restrictedFlagIsDetected() {

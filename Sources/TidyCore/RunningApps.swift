@@ -11,6 +11,15 @@ public enum RunningApps {
         NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier)
     }
 
+    /// Bundle IDs of everything running now, with the bundle each was started from.
+    public static func bundles() -> [(id: String, path: String)] {
+        NSWorkspace.shared.runningApplications.compactMap { app in
+            guard let id = app.bundleIdentifier, var path = app.bundleURL?.path(percentEncoded: false) else { return nil }
+            while path.count > 1 && path.hasSuffix("/") { path.removeLast() }
+            return (id, path)
+        }
+    }
+
     /// Asks every instance to quit and waits up to `timeout` seconds. True once they're all gone.
     public static func quit(_ app: App, timeout: TimeInterval = 15) -> Bool {
         let running = instances(of: app)

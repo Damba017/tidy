@@ -39,25 +39,41 @@ public enum Leftovers {
 
     /// Everything that belongs to `app`, strongest match first. Reads only.
     public static func find(for app: App) -> [Leftover] {
-        merge(find(bundleID: app.bundleID, names: app.names, in: locations()) + pkgLeftovers(for: app))
+        merge(find(bundleID: app.bundleID, names: app.names, in: locations(), others: otherAppIDs(than: app))
+            + pkgLeftovers(for: app))
     }
 
     /// The Library leftovers for something with this bundle ID (if any) and these names.
-    public static func find(bundleID: String?, names: [String], home: String = Paths.home) -> [Leftover] {
-        find(bundleID: bundleID, names: names, in: locations(home: home))
+    /// `others`: the bundle IDs of the other apps on this Mac (see `otherAppIDs`).
+    public static func find(bundleID: String?, names: [String], home: String = Paths.home, others: [String]) -> [Leftover] {
+        find(bundleID: bundleID, names: names, in: locations(home: home), others: others)
     }
 
-    /// Looks one level deep in each of `locations`.
-    static func find(bundleID: String?, names: [String], in locations: [String]) -> [Leftover] {
+    /// Looks one level deep in each of `locations`. What another app claims with a longer bundle ID
+    /// (com.google.Chrome.canary, next to com.google.Chrome) is that app's, not this one's.
+    static func find(bundleID: String?, names: [String], in locations: [String], others: [String]) -> [Leftover] {
         let names = usableNames(names)
+        let longer = bundleID.map { id in others.filter { $0.count > id.count } } ?? []
         var found: [Leftover] = []
         for location in locations {
-            for entry in AppFinder.contents(of: location) {
+            for entry in AppFinder.contents(of: location)
+            where !longer.contains(where: { match(entry, bundleID: $0, names: []) == .bundleID }) {
                 guard let match = match(entry, bundleID: bundleID, names: names) else { continue }
                 found.append(Leftover(path: location + "/" + entry, match: match))
             }
         }
         return merge(found)
+    }
+
+    /// Bundle IDs of the other apps on this Mac, installed or running. Reads only.
+    public static func otherAppIDs(than app: App) -> [String] {
+        let installed = AppFinder.installedApps().compactMap { other in other.bundleID.map { (id: $0, path: other.path) } }
+        return otherAppIDs(than: app, among: installed + RunningApps.bundles())
+    }
+
+    /// `apps` minus `app` itself and its helpers, which live inside its bundle.
+    static func otherAppIDs(than app: App, among apps: [(id: String, path: String)]) -> [String] {
+        apps.filter { $0.path != app.path && !$0.path.hasPrefix(app.path + "/") }.map(\.id)
     }
 
     /// What a command-line tool leaves in the home folder: ~/.config/<name>, ~/.cache/<name>,
@@ -67,6 +83,16 @@ public enum Leftovers {
         let paths = [".config/", ".cache/", ".local/share/", ".local/state/", "."].map { home + "/" + $0 + name }
             + [home + "/." + name + "rc"]
         return merge(paths.filter(Paths.exists).map { Leftover(path: $0, match: .name) })
+    }
+
+    /// Where macOS keeps its own command-line tools.
+    public static let macOSToolFolders = ["/bin", "/usr/bin", "/usr/sbin"]
+
+    /// macOS's own tool called `name` (/bin/zsh, /usr/bin/vim), if there is one. It reads the same
+    /// dotfiles as the Homebrew one, so those aren't leftovers.
+    public static func macOSTool(_ name: String, in folders: [String]) -> String? {
+        guard !name.isEmpty, !name.contains("/") else { return nil }
+        return folders.map { $0 + "/" + name }.first(where: Paths.exists)
     }
 
     /// How `entry` (a file or folder name) relates to the app, if at all.

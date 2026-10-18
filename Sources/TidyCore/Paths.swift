@@ -5,8 +5,9 @@ public enum Paths {
     public static let logFile = home + "/.local/state/tidy/log"
 
     /// Absolute path with `~` expanded, trailing slashes dropped and symlinks in the
-    /// parent folders resolved. The last component is kept as is: removing a symlink
-    /// removes the link, never its target. Paths on the boot data volume
+    /// parent folders resolved. The last component is never resolved: removing a symlink
+    /// removes the link, never its target. Its case comes from the disk, though: on a
+    /// case-insensitive volume `~/library` is `~/Library`. Paths on the boot data volume
     /// (`/System/Volumes/Data/...`) are mapped back to their normal location.
     public static func normalize(_ path: String) -> String {
         var p = (path as NSString).expandingTildeInPath
@@ -17,7 +18,7 @@ public enum Paths {
         if p == "/" || name == "." || name == ".." {
             p = realPath(p) ?? p
         } else if let parent = realPath(parent(p)) {
-            p = parent == "/" ? "/" + name : parent + "/" + name
+            p = (parent == "/" ? "" : parent) + "/" + (storedName(of: name, in: parent) ?? name)
         }
 
         let data = "/System/Volumes/Data"
@@ -46,5 +47,28 @@ public enum Paths {
         guard let resolved = realpath(path, nil) else { return nil }
         defer { free(resolved) }
         return String(cString: resolved)
+    }
+
+    /// How `name` is spelled on disk in `folder` ("library" → "Library"), on a volume that ignores case.
+    /// A symlink's own name, never its target's. Nil when it isn't there or the volume minds case.
+    static func storedName(of name: String, in folder: String) -> String? {
+        guard pathconf(folder, _PC_CASE_SENSITIVE) == 0 else { return nil }
+        var request = attrlist()
+        request.bitmapcount = u_short(ATTR_BIT_MAP_COUNT)
+        request.commonattr = attrgroup_t(ATTR_CMN_NAME)
+        var buffer = [UInt8](repeating: 0, count: 2048)
+        let path = (folder == "/" ? "" : folder) + "/" + name
+        let status = buffer.withUnsafeMutableBytes {
+            getattrlist(path, &request, $0.baseAddress, $0.count, UInt32(FSOPT_NOFOLLOW))
+        }
+        guard status == 0 else { return nil }
+        // Layout: u_int32_t length, then an attrreference_t pointing at the name.
+        let stored = buffer.withUnsafeBytes { raw in
+            let field = raw.baseAddress! + 4
+            let reference = field.loadUnaligned(as: attrreference_t.self)
+            return String(cString: (field + Int(reference.attr_dataoffset)).assumingMemoryBound(to: CChar.self))
+        }
+        // Only another spelling of the same name: a hard link's other names don't count.
+        return stored.lowercased() == name.lowercased() ? stored : nil
     }
 }

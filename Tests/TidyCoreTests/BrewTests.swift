@@ -107,10 +107,12 @@ private func formula(_ name: String) -> Candidate {
     Candidate(package: BrewPackage(name: name, kind: .formula, apps: []))
 }
 
-/// Runs BrewFlow with fakes for brew, the questions and the safety core.
-private func flow(_ candidate: Candidate, in fx: Fixture, _ t: Transcript, _ brew: FakeBrew, dryRun: Bool = false) -> Bool {
+/// Runs BrewFlow with fakes for brew, the questions and the safety core. macOS's own tools: the fixture's bin/.
+private func flow(_ candidate: Candidate, in fx: Fixture, _ t: Transcript, _ brew: FakeBrew, dryRun: Bool = false,
+                  others: [String] = []) -> Bool {
     BrewFlow.run(
-        candidate, dryRun: dryRun, say: t.say, ask: t.ask, home: fx.home, query: brew.query, brew: brew.run,
+        candidate, dryRun: dryRun, say: t.say, ask: t.ask, home: fx.home, toolFolders: [fx.root + "/bin"],
+        others: others, query: brew.query, brew: brew.run,
         remove: { plan in
             _ = Remover.run(plan, dryRun: dryRun, say: t.say, ask: t.ask, choose: t.choose, log: fx.log, sudo: t.sudo,
                             launchctl: t.launchctl, trashItem: fx.trash)
@@ -163,6 +165,53 @@ private func flow(_ candidate: Candidate, in fx: Fixture, _ t: Transcript, _ bre
     #expect(t.questions[1].hasPrefix("Move 1 item"))
     #expect(!Paths.exists(config))
     #expect(fx.trashed() == ["tidytesttool"])
+}
+
+@Test func dotfilesOfAToolMacOSHasTooStay() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    try fx.file("bin/tidytesttool")  // macOS's own tool of that name, like /bin/zsh
+    let rc = try fx.file("home/.tidytesttoolrc")
+    let config = try fx.file("home/.config/tidytesttool/config")
+    let brew = FakeBrew()
+    let t = Transcript()
+    t.answer = true
+
+    #expect(flow(formula("tidytesttool"), in: fx, t, brew))
+
+    #expect(brew.runs == [["uninstall", "tidytesttool"]])
+    #expect(t.lines.contains {
+        $0.hasPrefix("Kept ") && $0.contains(".tidytesttoolrc") && $0.contains("(\(fx.root)/bin/tidytesttool) uses them too")
+    })
+    #expect(t.lines.contains("No other leftovers found for tidytesttool."))
+    #expect(Paths.exists(rc) && Paths.exists(config))
+    #expect(fx.trashed().isEmpty)
+}
+
+@Test func aCasksLeftoversLeaveAnotherAppsFilesAlone() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let own = try fx.folder("home/Library/Caches/com.example.tidytest")
+    let beta = try fx.folder("home/Library/Caches/com.example.tidytest.beta")  // another app, still installed
+    let app = App(path: fx.root + "/apps/TidyTest.app", bundleID: "com.example.tidytest", bundleName: nil,
+                  displayName: nil, executable: nil, source: .manual)
+    let cask = Candidate(package: BrewPackage(name: "tidytestcask", kind: .cask, apps: ["TidyTest.app"]), app: app)
+    let brew = FakeBrew()
+    let t = Transcript()
+    t.answers = [true, false, true]  // uninstall: yes, --zap: no, leftovers: yes
+
+    #expect(flow(cask, in: fx, t, brew, others: ["com.example.tidytest.beta"]))
+
+    #expect(!Paths.exists(own))
+    #expect(Paths.exists(beta))
+    #expect(fx.trashed() == ["com.example.tidytest"])
+}
+
+@Test func macOSOwnToolsAreFound() {
+    #expect(Leftovers.macOSTool("zsh", in: Leftovers.macOSToolFolders) == "/bin/zsh")
+    #expect(Leftovers.macOSTool("vim", in: Leftovers.macOSToolFolders) == "/usr/bin/vim")
+    #expect(Leftovers.macOSTool("fastfetch", in: Leftovers.macOSToolFolders) == nil)
+    #expect(Leftovers.macOSTool("../bin/zsh", in: Leftovers.macOSToolFolders) == nil)
 }
 
 @Test func failedBrewUninstallLeavesTheLeftoversAlone() throws {

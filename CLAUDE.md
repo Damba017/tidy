@@ -121,8 +121,9 @@ For each name:
    - `/Library/Application Support`, `/Library/Caches`, `/Library/Preferences`, `/Library/LaunchAgents`, `/Library/LaunchDaemons`, `/Library/PrivilegedHelperTools`
    - `/private/var/db/receipts` (pkg receipts — read `pkgutil --pkgs` / `--files` read-only to find pkg-installed files)
    Mark each match with how it matched: **bundle ID** (exact bundle ID, or bundle ID + suffix like `com.hnc.Discord.ShipIt`), **name** (a path component equals the app/executable name, case-insensitive — e.g. `Application Support/discord`), or **fuzzy** (name only appears as a substring — e.g. `BetterDiscord`). Bundle ID and name matches are checked by default; fuzzy ones are unchecked.
+   - What another installed or running app claims with a longer bundle ID is that app's and isn't offered at all (`com.google.Chrome.canary…` when uninstalling `com.google.Chrome`). An app's own helpers live inside its bundle, so they don't count as other apps.
 5. Show the list with sizes, let him toggle items, then one final `y/N` (plus the separate fuzzy `y/N` above, if he ticked any).
-   - A path to a `.app` (e.g. `~/Downloads/Foo.app`) is accepted as a name and used as is.
+   - A path to an app bundle (e.g. `~/Downloads/Foo.app`: a real folder ending in `.app` with an Info.plist) is accepted as a name and used as is. Any other path is refused ("Not an app …; skipped"), so no other folder is ever taken for an app.
    - Leftovers macOS privacy protection keeps tidy out of (EPERM, not root-owned) are not offered; they're listed afterwards with the Full Disk Access hint. sudo doesn't help there.
 6. **For brew packages** the flow is (this is the real output):
    ```
@@ -138,6 +139,7 @@ For each name:
    ```
    - The uninstall itself runs `brew uninstall <name>` (casks: `brew uninstall --cask <name>`). For casks tidy explains `--zap` (it deletes the cask's listed files right away, **not** via the Trash) and asks separately; default No.
    - Leftovers: `~/.config/<name>`, `~/.cache/<name>`, `~/.local/share/<name>`, `~/.local/state/<name>`, `~/.<name>` / `~/.<name>rc`, plus the `~/Library` locations above (by the cask app's bundle ID and names). They go through the safety core (plan, `y/N`, fuzzy asked separately) → Trash.
+   - When macOS has its own tool of that name (`/bin`, `/usr/bin`, `/usr/sbin`: `zsh`, `bash`, `vim`, `git`, …), those dotfiles are shared with it: never offered, tidy says "Kept ~/.zshrc: macOS's own zsh (/bin/zsh) uses it too."
    - If something else depends on it (`brew uses --installed <name>`), warn before asking.
    - Said no, or `brew uninstall` failed → its leftovers are left alone too. `--dry-run` never runs brew; it prints "would run: brew uninstall …" and the leftover plan.
    - brew queries run with `HOMEBREW_NO_AUTO_UPDATE=1`. Even read-only queries let brew refresh its own cache in `~/Library/Caches/Homebrew/api`; that's brew's housekeeping, not an install.
@@ -165,6 +167,8 @@ Categories (no argument = all, grouped with totals per category):
 - **dev** — Xcode `DerivedData`, `Archives` (unchecked: needed to symbolicate shipped builds), unavailable simulators (`xcrun simctl list` read-only), `node_modules` (next to `package.json`), `.build` (next to `Package.swift`), `target` (next to `Cargo.toml`) when the project wasn't changed for **60 days**, `__pycache__`, package-manager caches. Only if they exist.
   - Many items of one kind? Don't build nested groups (decided 2026-10-18: not worth the complexity). If Dev junk ever gets crowded, split it into top-level groups per kind ("Dev junk · node_modules", "Dev junk · Python caches", …), like "Large & old · Downloads".
   - Python virtual environments (any folder with a `pyvenv.cfg`) are never looked into; a project's venv is offered **whole** ("Python virtual environment") when the project wasn't changed for 60 days and has `pyproject.toml`, `requirements.txt`, `uv.lock`, `Pipfile` or `setup.py` next to it (otherwise it can't easily be set up again). `~/.local/share/uv` (uv's own Pythons and tools) is skipped entirely. So `__pycache__` only shows for his own code.
+  - A venv is only offered when it holds nothing but venv parts (`bin`, `lib`, `include`, `share`, `etc`, `pyvenv.cfg`, `.gitignore`, `CACHEDIR.TAG`, …): after `python -m venv .` the venv is the folder with his code, and that's never offered.
+  - Nothing in hidden folders directly in `~` counts as dev junk (`~/.vscode/extensions`, `~/.bun/install/global`, a tool's own venv in `~/.config/…`): tools keep their installs there, and a `node_modules` in there is part of an install that doesn't rebuild itself. Large files in there still count for **large**.
 
 Review list grouped per category, with the same group-checkbox rules as `uninstall` (`[x]` all / `[~]` some / `[ ]` none). **Default selection:** Caches & logs and Dev junk are checked (apps regenerate them); Large & old and Orphans are unchecked (his own files / risk of false positives) — he ticks those himself. Then one `y/N` → Trash. Ticked **orphans** are asked about separately, like fuzzy matches: `y = all · o = one by one · N = none (Enter)`; in one-by-one mode an N keeps that item and goes back to that question for the rest.
 
@@ -192,6 +196,7 @@ The uninstall app picker filters by just typing (no `/`), space selects, Enter c
   - **Standard folders themselves** (their contents may go, the folder may not): `/Applications`, `/Applications/Utilities`, `~/Applications`, `/Library`, `/Users/Shared`, `/Volumes`, `/opt`, `/opt/homebrew`, `/usr/local`, `/private`, `/private/tmp`, `/private/var`, `/etc`, `/tmp`, `/var`; in `~`: `Desktop`, `Documents`, `Downloads`, `Movies`, `Music`, `Pictures`, `Public`, `Library`, `.config`, `.cache`, `.local` (+ `bin`, `share`, `state`); the `~/Library` and `/Library` scan locations listed under `uninstall` (`Caches`, `Application Support`, `Preferences`, `LaunchAgents`, …).
   - **Hidden items at the root of a volume** (`.Spotlight-V100`, `.fseventsd`, `.Trashes`, …) and anything with the SIP `restricted` flag.
   - Paths are compared only after resolving symlinks on both sides (`/tmp` → `/private/tmp`), and `/System/Volumes/Data/…` is mapped to its normal path first. The denylist is checked when the plan is built **and** again right before every move.
+  - Case never matters: APFS ignores it (`~/applications` *is* `~/Applications`), so the denylist compares without case, and `Paths.normalize` takes each path's last name as it's spelled on disk (`getattrlist`, without following a symlink). Found in the phase 8 review: before that, `tidy uninstall ~/applications` would have offered his whole `~/Applications`.
 - **Root-owned files** (App Store apps, `/Library/LaunchDaemons`, `PrivilegedHelperTools`, etc.):
   - The tool *can* remove them, but every time it needs root it says so explicitly and asks: `These 3 items need administrator rights (sudo). Continue? (y/N)`.
   - Then one `sudo` prompt for the batch, moving items into `~/.Trash/` with a collision-safe name (`sudo /bin/mv`). Mention that emptying the Trash will ask for his password later.
@@ -246,7 +251,23 @@ The uninstall app picker filters by just typing (no `/`), space selects, Enter c
 6. ✅ **Main menu** (`tidy` without arguments).
 7. ✅ **Release build + install** to `~/.local/bin` — ask first. Check that `~/.local/bin` is in his `PATH`; if not, tell him the line to add himself.
 8. **Full code review, at max effort**, looking for anything that could remove the wrong thing — before Damba's first real uninstalls (AppCleaner first, then an App Store app he doesn't care about: the first real run of the sudo path).
+   - Review done 2026-10-18: every file read, 12 findings. Fixes 1–6 are done, each with tests, checked by Damba with `--dry-run` (`.build/release/tidy`, not installed yet) and committed together:
+     1. Case got past the denylist (`~/applications`, `~/.local/state/TIDY`) → the denylist ignores case, `normalize` takes the spelling from disk.
+     2. `tidy uninstall <path>` took any folder for an app → only app bundles.
+     3. Brew dotfiles of tools macOS also has (`zsh` → `~/.zshrc`) were leftovers → kept.
+     4. Files of another app with a longer bundle ID (`com.google.Chrome.canary`) counted as Chrome's → left out.
+     5. `node_modules` and venvs in tool folders (`~/.vscode/extensions`, `~/.bun`) were dev junk → nothing in hidden folders in `~`.
+     6. An in-place venv (`python -m venv .`, his code inside) was offered whole → only plain venvs.
+   - Still to do (next session, 2026-10-19):
+     7. Protect all of `/private/var` and `/Library/Preferences/SystemConfiguration` (Damba's choice): `tidy disk` + sudo could move `/private/var/folders`, `/private/var/root`, the network settings.
+     8. Flush typed-ahead input (`tcflush`) right before reading a `(y/N)`, so a `y⏎` typed while the plan was loading doesn't count.
+     9. Map `/System/Volumes/Data/X` to `/X` only when it's the same file (a firmlink), else keep the data path (→ Protected). Now `macOS Install Data`, `sw`, `mnt` show "Not found" in `tidy disk` and `home` points at the sealed `/home` symlink.
+     10. `Trash.freeDestination`: only `ENOENT` counts as a free name (any other `lstat` error stops the sudo batch); when `mv -n` skipped, say the name is taken instead of "sudo mv failed (exit 0)".
+     11. Log: a tab or newline in a path breaks the line; check simulator UDIDs look like UUIDs before they go into a path.
+     12. sudo items on another volume are copied into the internal `~/.Trash` (slow, fills the internal disk). The fix is still to be decided with Damba.
+   - Then a final check in a new session, then mark phase 8 done.
+   - **Commits (Damba's rule for this phase):** nothing is committed until he has tested it. Fixes 1–6: one commit (done); 7–12: the next commit, after his test.
 
-**Where things stand (2026-10-18):** phases 0–7 are done and tested by Damba with `--dry-run`; version 0.1.0 (commit `6b99f8c`) is installed in `~/.local/bin`. Next: phase 8. Real removals have been tried once, on purpose and small (`junk orphans` and `junk caches`, user-owned items only): Trash, log and "Put Back" work. Never run for real yet: the sudo path, `launchctl bootout`, `brew uninstall`, quitting a running app.
+**Where things stand (2026-10-18):** phases 0–7 are done and tested by Damba with `--dry-run`; version 0.1.0 (commit `6b99f8c`) is installed in `~/.local/bin` (without the phase 8 fixes). Phase 8 is in progress, see above. Real removals have been tried once, on purpose and small (`junk orphans` and `junk caches`, user-owned items only): Trash, log and "Put Back" work. Never run for real yet: the sudo path, `launchctl bootout`, `brew uninstall`, quitting a running app.
 
 Stop and ask whenever a decision isn't covered here instead of guessing.

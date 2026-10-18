@@ -11,7 +11,8 @@ public enum BrewFlow {
         ask: (String) -> Bool,
         choose: (String) -> Remover.Choice
     ) -> Bool {
-        run(candidate, dryRun: dryRun, say: say, ask: ask, home: Paths.home, query: Brew.query, brew: Brew.run,
+        run(candidate, dryRun: dryRun, say: say, ask: ask, home: Paths.home, toolFolders: Leftovers.macOSToolFolders,
+            others: candidate.app.map(Leftovers.otherAppIDs(than:)) ?? [], query: Brew.query, brew: Brew.run,
             remove: { plan in _ = Remover.run(plan, dryRun: dryRun, say: say, ask: ask, choose: choose) })
     }
 
@@ -22,6 +23,8 @@ public enum BrewFlow {
         say: (String) -> Void,
         ask: (String) -> Bool,
         home: String,
+        toolFolders: [String],
+        others: [String],
         query: ([String]) -> String,
         brew: ([String]) -> Int32,
         remove: (RemovalPlan) -> Void
@@ -58,12 +61,20 @@ public enum BrewFlow {
             }
         }
 
+        // Dotfiles of a tool macOS has too (zsh, vim, git, …) are shared with macOS's own one: they stay.
+        let dotfiles = Leftovers.dotfiles(for: package.name, home: home)
+        let macOSTool = Leftovers.macOSTool(package.name, in: toolFolders)
+        let kept = macOSTool == nil ? [] : dotfiles.map(\.path)
+        if let macOSTool, !kept.isEmpty {
+            say("Kept \(kept.map(Paths.display).joined(separator: ", ")): macOS's own \(package.name) "
+                + "(\(macOSTool)) uses \(kept.count == 1 ? "it" : "them") too.")
+        }
         // The cask's app (and so its bundle ID) came from before the uninstall, so it still counts.
         let leftovers = Leftovers.merge(
-            Leftovers.dotfiles(for: package.name, home: home)
-                + Leftovers.find(bundleID: candidate.app?.bundleID, names: candidate.names, home: home))
+            (macOSTool == nil ? dotfiles : [])
+                + Leftovers.find(bundleID: candidate.app?.bundleID, names: candidate.names, home: home, others: others))
         guard !leftovers.isEmpty else {
-            say("No leftovers found for \(package.name).")
+            say("No \(kept.isEmpty ? "" : "other ")leftovers found for \(package.name).")
             return true
         }
         say("")

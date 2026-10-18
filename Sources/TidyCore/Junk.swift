@@ -176,6 +176,9 @@ public enum Junk {
             let name = (path as NSString).lastPathComponent
             if info == FTS_D {
                 if path == home { continue }
+                // Tools keep their own installs in hidden folders in ~ (~/.vscode/extensions, ~/.bun, …):
+                // a node_modules or venv in there is part of an install, not a build folder.
+                let inToolFolder = path.dropFirst(home.count + 1).hasPrefix(".")
                 if path == home + "/Library" || path == home + "/.Trash" || name == ".git"
                     || path == home + "/.local/share/uv" {  // uv's own Pythons and tools
                     fts_set(fts, entry, FTS_SKIP)
@@ -183,15 +186,15 @@ public enum Junk {
                     // Never look inside a virtual environment; a stale project's one is offered whole.
                     fts_set(fts, entry, FTS_SKIP)
                     let project = Paths.parent(path)
-                    if pythonManifests.contains(where: { Paths.exists(project + "/" + $0) }),
-                       (lastChange(in: project, ignoring: name) ?? now) < staleBefore {
+                    if !inToolFolder, pythonManifests.contains(where: { Paths.exists(project + "/" + $0) }),
+                       isPlainVenv(path), (lastChange(in: project, ignoring: name) ?? now) < staleBefore {
                         dev.append(JunkItem(path: path, label: "Python virtual environment", group: groupDev,
                                             checked: true, note: nil))
                     }
                 } else if let build = buildFolders[name] {
                     fts_set(fts, entry, FTS_SKIP)
                     let project = Paths.parent(path)
-                    guard build.manifest.map({ Paths.exists(project + "/" + $0) }) ?? true else { continue }
+                    guard !inToolFolder, build.manifest.map({ Paths.exists(project + "/" + $0) }) ?? true else { continue }
                     if !build.stale || (lastChange(in: project, ignoring: name) ?? now) < staleBefore {
                         dev.append(JunkItem(path: path, label: build.label, group: groupDev, checked: true, note: nil))
                     }
@@ -214,6 +217,18 @@ public enum Junk {
                             checked: false, note: nil)
         }
         return (shown, max(0, large.count - options.largeLimit), dev)
+    }
+
+    /// What a virtual environment holds. One with anything else in it (your own code, after
+    /// `python -m venv .`) is never offered.
+    static let venvParts: Set<String> = [
+        "bin", "include", "lib", "lib64", "share", "etc", "pyvenv.cfg", ".gitignore", "cachedir.tag", ".lock",
+        ".ds_store", "pip-selfcheck.json",
+    ]
+
+    static func isPlainVenv(_ folder: String) -> Bool {
+        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: folder) else { return false }
+        return entries.allSatisfy { venvParts.contains($0.lowercased()) }
     }
 
     /// The most recent change to anything directly in `folder`, build folders and `ignoring` left out.
