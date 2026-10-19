@@ -258,7 +258,7 @@ The uninstall app picker filters by just typing (no `/`), space selects, Enter c
 5. ✅ **`tidy junk`:** caches → large → dev → orphans (orphans last; most risk of false positives).
 6. ✅ **Main menu** (`tidy` without arguments).
 7. ✅ **Release build + install** to `~/.local/bin` — ask first. Check that `~/.local/bin` is in his `PATH`; if not, tell him the line to add himself.
-8. **Full code review, at max effort**, looking for anything that could remove the wrong thing — before Damba's first real uninstalls (AppCleaner first, then an App Store app he doesn't care about: the first real run of the sudo path).
+8. ✅ **Full code review, at max effort**, looking for anything that could remove the wrong thing — before Damba's first real uninstalls (AppCleaner first, then an App Store app he doesn't care about: the first real run of the sudo path).
    - Review done 2026-10-18: every file read, 12 findings. Fixes 1–6 are done, each with tests, checked by Damba with `--dry-run` (`.build/release/tidy`, not installed yet) and committed together:
      1. Case got past the denylist (`~/applications`, `~/.local/state/TIDY`) → the denylist ignores case, `normalize` takes the spelling from disk.
      2. `tidy uninstall <path>` took any folder for an app → only app bundles.
@@ -278,9 +278,13 @@ The uninstall app picker filters by just typing (no `/`), space selects, Enter c
    - Final review of all code in a fresh session, 2026-10-19: 10 findings. Damba: fix all of them except #8 (`taydic uninstall Foo.app` by name says "Nothing matches"; cosmetic, he never types it), in two halves.
      - Half 1, committed and pushed as `c695758` after Damba's test (the sudo prompt, Ctrl-C at it, a real sudo move of a fixture into `~/.Trash`, dry-runs of AppCleaner and uBlock Origin Lite): #5 sudo and `brew uninstall` could never ask in the terminal (see "Root-owned files": `Spawn`); #1 what a second copy or an app by the same name uses stays; #2 pkg files inside another app stay; #3 Apple's names only match by bundle ID; #4 `trashItem` on a symlink moves the link, not its target (real-Trash test, passed).
      - Half 2, committed and pushed after Damba's test (`junk dev`/`junk large` and AppCleaner dry-runs, `_plan` on a mounted Firefox .dmg → "read-only volume"): #6 Library locations taydic can't list are named ("Not searched"); #7 a read-only volume is Protected, not "needs sudo"; #9 `junk large` looks inside a `target`/`.build`/`node_modules` that isn't a build folder; #10 old `tidy` in comments.
-   - Then install as `~/.local/bin/taydic` (ask first, and whether it becomes 0.2.0) with the PATH line he adds himself.
+   - Installed 2026-10-19 as `~/.local/bin/taydic`, version 0.2.0 (`b69db00`), checked with `cmp` and `~/.local/bin/taydic --version`. The PATH line in `~/.zprofile` is his to add (`which taydic` must say `~/.local/bin/taydic`); the old `~/.local/bin/tidy` (0.1.0) is his to remove.
    - **Commits (Damba's rule for this phase):** nothing is committed until he has tested it. Fixes 1–6: one commit (done); 7–12: the next (done); then the rename (done); then the final review's fixes, one commit per half, each pushed after his test.
 
-**Where things stand (2026-10-19):** phases 0–7 are done and tested by Damba with `--dry-run`; version 0.1.0 (commit `6b99f8c`) is installed as `~/.local/bin/tidy` (the old name, without the phase 8 fixes, and not in his PATH). Phase 8 is in progress, see above. Real removals have been tried once, on purpose and small (`junk orphans` and `junk caches`, user-owned items only): Trash, log and "Put Back" work. The sudo path ran for real on 2026-10-19, on a fixture in `/tmp/tidy-test` (password prompt, Ctrl-C at it, `sudo mv` into `~/.Trash`, " 2" for a taken name, the log). Never run for real yet: `launchctl bootout`, `brew uninstall`, quitting a running app.
+**Where things stand (2026-10-19):** phases 0–8 are done, every step tested by Damba. taydic 0.2.0 is installed as `~/.local/bin/taydic`; the old `~/.local/bin/tidy` (0.1.0) may still be there until he removes it. Ready for his first real uninstalls:
+- **AppCleaner** first: `taydic uninstall appcleaner` offers 5 items, all his own (the app plus 4 bundle-ID leftovers), no sudo. Its terminal has no Full Disk Access, so `~/Library/Cookies` shows as "Not searched".
+- Then **uBlock Origin Lite** (App Store): the app needs sudo, its 4 leftovers don't. The first real sudo run on an app.
+
+Real removals have been tried once, on purpose and small (`junk orphans` and `junk caches`, user-owned items only): Trash, log and "Put Back" work. The sudo path ran for real on 2026-10-19, on a fixture in `/tmp/tidy-test` (password prompt, Ctrl-C at it, `sudo mv` into `~/.Trash`, " 2" for a taken name, the log). Never run for real yet: `launchctl bootout`, `brew uninstall`, quitting a running app.
 
 Stop and ask whenever a decision isn't covered here instead of guessing.
