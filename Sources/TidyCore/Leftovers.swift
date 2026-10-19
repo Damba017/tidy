@@ -39,41 +39,53 @@ public enum Leftovers {
 
     /// Everything that belongs to `app`, strongest match first. Reads only.
     public static func find(for app: App) -> [Leftover] {
-        merge(find(bundleID: app.bundleID, names: app.names, in: locations(), others: otherAppIDs(than: app))
-            + pkgLeftovers(for: app))
+        let others = otherApps(than: app)
+        return merge(find(bundleID: app.bundleID, names: app.names, in: locations(), others: others)
+            + pkgLeftovers(for: app, others: others))
     }
 
     /// The Library leftovers for something with this bundle ID (if any) and these names.
-    /// `others`: the bundle IDs of the other apps on this Mac (see `otherAppIDs`).
-    public static func find(bundleID: String?, names: [String], home: String = Paths.home, others: [String]) -> [Leftover] {
+    /// `others`: the other apps on this Mac (see `otherApps`).
+    public static func find(bundleID: String?, names: [String], home: String = Paths.home, others: [App]) -> [Leftover] {
         find(bundleID: bundleID, names: names, in: locations(home: home), others: others)
     }
 
-    /// Looks one level deep in each of `locations`. What another app claims with a longer bundle ID
-    /// (com.google.Chrome.canary, next to com.google.Chrome) is that app's, not this one's.
-    static func find(bundleID: String?, names: [String], in locations: [String], others: [String]) -> [Leftover] {
+    /// Looks one level deep in each of `locations`. What another app claims as well is left out:
+    /// with a longer bundle ID it's that app's (com.google.Chrome.canary, next to com.google.Chrome);
+    /// with the same bundle ID (a second copy, Xcode-beta next to Xcode) or by the same name
+    /// (Firefox Nightly is "firefox" too, in the same Application Support/Firefox) it's shared.
+    static func find(bundleID: String?, names: [String], in locations: [String], others: [App]) -> [Leftover] {
         let names = usableNames(names)
-        let longer = bundleID.map { id in others.filter { $0.count > id.count } } ?? []
+        let theirIDs = bundleID.map { id in others.compactMap(\.bundleID).filter { $0.count >= id.count } } ?? []
+        let theirNames = usableNames(others.flatMap(\.names))
         var found: [Leftover] = []
         for location in locations {
             for entry in AppFinder.contents(of: location)
-            where !longer.contains(where: { match(entry, bundleID: $0, names: []) == .bundleID }) {
+            where !theirIDs.contains(where: { match(entry, bundleID: $0, names: []) == .bundleID }) {
                 guard let match = match(entry, bundleID: bundleID, names: names) else { continue }
+                if match != .bundleID && Self.match(entry, bundleID: nil, names: theirNames) == .name { continue }
                 found.append(Leftover(path: location + "/" + entry, match: match))
             }
         }
         return merge(found)
     }
 
-    /// Bundle IDs of the other apps on this Mac, installed or running. Reads only.
-    public static func otherAppIDs(than app: App) -> [String] {
-        let installed = AppFinder.installedApps().compactMap { other in other.bundleID.map { (id: $0, path: other.path) } }
-        return otherAppIDs(than: app, among: installed + RunningApps.bundles())
+    /// The other apps on this Mac, installed or running. Reads only.
+    public static func otherApps(than app: App?) -> [App] {
+        let installed = AppFinder.installedApps()
+        let paths = Set(installed.map(\.path))
+        let running = RunningApps.bundles().filter { !paths.contains($0.path) }.map { id, path in
+            let info = AppFinder.load(path)
+            return App(path: path, bundleID: id, bundleName: info?.bundleName, displayName: info?.displayName,
+                       executable: info?.executable, source: .manual)
+        }
+        return otherApps(than: app, among: installed + running)
     }
 
     /// `apps` minus `app` itself and its helpers, which live inside its bundle.
-    static func otherAppIDs(than app: App, among apps: [(id: String, path: String)]) -> [String] {
-        apps.filter { $0.path != app.path && !$0.path.hasPrefix(app.path + "/") }.map(\.id)
+    static func otherApps(than app: App?, among apps: [App]) -> [App] {
+        guard let app else { return apps }
+        return apps.filter { $0.path != app.path && !$0.path.hasPrefix(app.path + "/") }
     }
 
     /// What a command-line tool leaves in the home folder: ~/.config/<name>, ~/.cache/<name>,
@@ -108,8 +120,9 @@ public enum Leftovers {
                 return .bundleID
             }
         }
-        // Apple's own files only ever match through the app's bundle ID.
-        if lower.hasPrefix("com.apple.") { return nil }
+        // Apple's own files only ever match through the app's bundle ID, also the ones that don't start with
+        // com.apple. (group.com.apple.notes, 2BUA8C4S2C.com.apple.…).
+        if lower.contains("com.apple.") { return nil }
         if names.contains(base) || names.contains(lower) { return .name }
         if names.contains(where: { $0.count >= 4 && lower.contains($0) }) { return .fuzzy }
         return nil
@@ -125,8 +138,8 @@ public enum Leftovers {
         return names.map { $0.lowercased() }.filter { $0.count >= 3 && !generic.contains($0) }
     }
 
-    /// Files a .pkg installed for this app, found with pkgutil (read-only).
-    static func pkgLeftovers(for app: App) -> [Leftover] {
+    /// Files a .pkg installed for this app, found with pkgutil (read-only). `others`: the other apps on this Mac.
+    static func pkgLeftovers(for app: App, others: [App]) -> [Leftover] {
         let names = usableNames(app.names)
         let packages = pkgutil(["--pkgs"]).split(separator: "\n").map(String.init).filter {
             match($0, bundleID: app.bundleID, names: names) == .bundleID
@@ -143,23 +156,29 @@ public enum Leftovers {
             }
             let root = (volume as NSString).appendingPathComponent(location)
             let files = pkgutil(["--files", id, "--only-files"]).split(separator: "\n").map(String.init)
-            return pkgPaths(files: files, root: root, app: app)
+            return pkgPaths(files: files, root: root, app: app, others: others)
         }
     }
 
     /// Turns a receipt's file list into leftovers: each file that still exists outside the app bundle,
     /// or the highest folder above it that's named after the app (so a whole support folder is one item).
-    static func pkgPaths(files: [String], root: String, app: App) -> [Leftover] {
+    /// What lies inside another app is that app's, and a folder that holds another app never goes whole
+    /// (one .pkg can install several apps).
+    static func pkgPaths(files: [String], root: String, app: App, others: [App]) -> [Leftover] {
         let names = usableNames(app.names)
+        let bundles = [app.path] + others.map(\.path)
         var result = Set<String>()
         for file in files {
             let path = Paths.normalize((root as NSString).appendingPathComponent(file))
-            guard Paths.exists(path), path != app.path, !path.hasPrefix(app.path + "/") else { continue }
+            guard Paths.exists(path), !bundles.contains(where: { path == $0 || path.hasPrefix($0 + "/") }) else { continue }
             var keep = path
             var folder = Paths.parent(path)
             while folder != "/" && folder.count > 1 {
                 let name = (folder as NSString).lastPathComponent
-                if let match = match(name, bundleID: app.bundleID, names: names), match != .fuzzy { keep = folder }
+                if let match = match(name, bundleID: app.bundleID, names: names), match != .fuzzy,
+                   !others.contains(where: { $0.path.hasPrefix(folder + "/") }) {
+                    keep = folder
+                }
                 folder = Paths.parent(folder)
             }
             result.insert(keep)

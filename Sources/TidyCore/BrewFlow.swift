@@ -12,7 +12,7 @@ public enum BrewFlow {
         choose: (String) -> Remover.Choice
     ) -> Bool {
         run(candidate, dryRun: dryRun, say: say, ask: ask, home: Paths.home, toolFolders: Leftovers.macOSToolFolders,
-            others: candidate.app.map(Leftovers.otherAppIDs(than:)) ?? [], query: Brew.query, brew: Brew.run,
+            others: Leftovers.otherApps(than: candidate.app), query: Brew.query, brew: Brew.run,
             remove: { plan in _ = Remover.run(plan, dryRun: dryRun, say: say, ask: ask, choose: choose) })
     }
 
@@ -24,7 +24,7 @@ public enum BrewFlow {
         ask: (String) -> Bool,
         home: String,
         toolFolders: [String],
-        others: [String],
+        others: [App],
         query: ([String]) -> String,
         brew: ([String]) -> Int32,
         remove: (RemovalPlan) -> Void

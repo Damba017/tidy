@@ -123,7 +123,9 @@ For each name:
    - `/Library/Application Support`, `/Library/Caches`, `/Library/Preferences`, `/Library/LaunchAgents`, `/Library/LaunchDaemons`, `/Library/PrivilegedHelperTools`
    - `/private/var/db/receipts` (pkg receipts — read `pkgutil --pkgs` / `--files` read-only to find pkg-installed files)
    Mark each match with how it matched: **bundle ID** (exact bundle ID, or bundle ID + suffix like `com.hnc.Discord.ShipIt`), **name** (a path component equals the app/executable name, case-insensitive — e.g. `Application Support/discord`), or **fuzzy** (name only appears as a substring — e.g. `BetterDiscord`). Bundle ID and name matches are checked by default; fuzzy ones are unchecked.
-   - What another installed or running app claims with a longer bundle ID is that app's and isn't offered at all (`com.google.Chrome.canary…` when uninstalling `com.google.Chrome`). An app's own helpers live inside its bundle, so they don't count as other apps.
+   - What another installed or running app claims as well isn't offered at all: with a longer bundle ID it's that app's (`com.google.Chrome.canary…` when uninstalling `com.google.Chrome`); with the same bundle ID (a second copy, Xcode-beta next to Xcode) or by the same name (Firefox Nightly's executable is `firefox` too, in the same `Application Support/Firefox`) it's shared. An app's own helpers live inside its bundle, so they don't count as other apps.
+   - pkg receipts: files inside another installed app are that app's, and a folder that holds another app is never offered whole (one .pkg can install several apps).
+   - Apple's own entries (anything with `com.apple.` in the name, so also `group.com.apple.notes`) only match through the app's bundle ID, never by name or fuzzy.
 5. Show the list with sizes, let him toggle items, then one final `y/N` (plus the separate fuzzy `y/N` above, if he ticked any).
    - A path to an app bundle (e.g. `~/Downloads/Foo.app`: a real folder ending in `.app` with an Info.plist) is accepted as a name and used as is. Any other path is refused ("Not an app …; skipped"), so no other folder is ever taken for an app.
    - Leftovers macOS privacy protection keeps tidy out of (EPERM, not root-owned) are not offered; they're listed afterwards with the Full Disk Access hint. sudo doesn't help there.
@@ -202,6 +204,7 @@ The uninstall app picker filters by just typing (no `/`), space selects, Enter c
 - **Root-owned files** (App Store apps, `/Library/LaunchDaemons`, `PrivilegedHelperTools`, etc.):
   - The tool *can* remove them, but every time it needs root it says so explicitly and asks: `These 3 items need administrator rights (sudo). Continue? (y/N)`.
   - Then one `sudo` prompt for the batch, moving items into `~/.Trash/` with a collision-safe name (`sudo /bin/mv`). Mention that emptying the Trash will ask for his password later.
+  - sudo and `brew uninstall` run through `Spawn` (`posix_spawn`), in taydic's own process group, so sudo can ask for the password in the terminal. Foundation's `Process` starts them in a process group of their own, in the background, and macOS stops a background program as soon as it touches the terminal: `sudo -v` used to hang there (found in the final review, 2026-10-19). While they run, taydic ignores Ctrl-C, so Ctrl-C at the password prompt cancels only sudo.
   - The name in the Trash is picked before anything is stopped or moved, and only a name `lstat` says doesn't exist (`ENOENT`) counts as free: if tidy can't look into the Trash (privacy protection), nothing more is moved with sudo. `mv -n` exits 0 without moving when the name was taken in the meantime; tidy reports that as "not moved, … was taken".
   - Root-owned items on another volume are moved into `~/.Trash` too, which copies them (decided 2026-10-19: fine, it's rare).
   - SIP-protected paths: report and skip, don't try.
@@ -217,7 +220,7 @@ The uninstall app picker filters by just typing (no `/`), space selects, Enter c
 - `Remover.swift` — the safety core: prints the plan, asks, trashes, sudo batch, launchctl, log. The only removal path.
 - `RemovalPlan.swift` — what would happen to each path (Trash / sudo / protected / missing), the doubtful block, rendering.
 - `Denylist.swift` — what may never be removed. `Paths.swift` — normalize (symlinks, `/System/Volumes/Data`), display with `~`.
-- `Trash.swift` (move to Trash, refuses denylisted paths itself), `Sudo.swift`, `Launchctl.swift`, `Log.swift`.
+- `Trash.swift` (move to Trash, refuses denylisted paths itself), `Sudo.swift`, `Spawn.swift` (runs sudo and `brew uninstall` in the terminal, in taydic's process group), `Launchctl.swift`, `Log.swift`.
 - `Size.swift` — allocated size (`fts`), formatting, parsing ("500MB"). `Scanner.swift` — `getattrlistbulk` tree scan for `disk`. `Volumes.swift`.
 - `AppFinder.swift` (.app bundles), `Brew.swift` (read-only queries + running `brew uninstall`), `Candidates.swift` (apps + brew in one list), `Leftovers.swift` (bundle ID / name / fuzzy / pkg receipts / dotfiles), `BrewFlow.swift`, `RunningApps.swift` (AppKit, only for quitting/bundle IDs).
 - `Junk.swift` — caches, large & old + dev (one `fts` walk through `~`), orphans.
@@ -228,7 +231,7 @@ The uninstall app picker filters by just typing (no `/`), space selects, Enter c
 ## Development & testing
 
 - `swift test` runs everything (Swift Testing). Every test works on fixtures in `/tmp/tidy-test/<uuid>` (`Fixture` in `Tests/TidyCoreTests/Fixtures.swift`) with a fake home.
-- **No test may ever reach the real Trash, sudo, launchctl or brew.** The internal overloads of `Remover.run`, `Trash.move` and `BrewFlow.run` have **no defaults** on purpose: tests pass `fx.trash` (a fake Trash inside the fixture, which also refuses anything outside `/tmp/tidy-test`), `Transcript` (fake `ask`/`choose`/`sudo`/`launchctl` that record and run nothing) and `FakeBrew`. The one test that uses the real Trash only runs with `TIDY_TRASH_TESTS=1` — ask Damba first. (On 2026-10-18 a denylist bug, `/tmp` vs `/private/tmp`, made refusal tests move empty fixture folders into his real Trash; that's why.)
+- **No test may ever reach the real Trash, sudo, launchctl or brew.** The internal overloads of `Remover.run`, `Trash.move` and `BrewFlow.run` have **no defaults** on purpose: tests pass `fx.trash` (a fake Trash inside the fixture, which also refuses anything outside `/tmp/tidy-test`), `Transcript` (fake `ask`/`choose`/`sudo`/`launchctl` that record and run nothing) and `FakeBrew`. The two tests that use the real Trash only run with `TIDY_TRASH_TESTS=1` — ask Damba first. One moves two fixtures, the other one symlink: the link goes, what it points to stays (run 2026-10-19 with his OK, passed). (On 2026-10-18 a denylist bug, `/tmp` vs `/private/tmp`, made refusal tests move empty fixture folders into his real Trash; that's why.)
 - To check the real Trash wasn't touched: `stat -f '%Sm' ~/.Trash` before and after (listing `~/.Trash` is blocked by privacy protection).
 - TUI checks: `python3 -I scripts/drive_tui.py COLS ROWS STEPS… -- .build/debug/taydic …` runs it in a pseudo-terminal and prints screens (cursor row marked `>>`). Only with `--dry-run` or on fixtures, answering `n`.
 - Don't scan Damba's whole home or disk from the agent (`junk large/dev/caches`, `disk` on `~`): macOS then shows privacy pop-ups for the Claude app. Give him the commands to run in his own Terminal instead. Reading names in `~/Library` and Spotlight (`junk orphans`) is fine.
@@ -271,8 +274,11 @@ The uninstall app picker filters by just typing (no `/`), space selects, Enter c
      12. Root-owned items on another volume are still copied into `~/.Trash`: fine for Damba, it's rare.
    - Fixes 7–12 committed and pushed as `06c87b9` after Damba's test.
    - Renamed the command to `taydic` (2026-10-19, see "Naming" at the top): the product in `Package.swift`, every text the user sees, and the log in `~/.local/state/taydic`. The old log in `~/.local/state/tidy` stays where it is, protected.
-   - Next: the final thorough review of all code in a new session (Damba's choice: fresh eyes), then install as `~/.local/bin/taydic` (ask first) with the PATH line he adds himself.
-   - **Commits (Damba's rule for this phase):** nothing is committed until he has tested it. Fixes 1–6: one commit (done); 7–12: the next (done); then the rename; then the review's fixes.
+   - Final review of all code in a fresh session, 2026-10-19: 10 findings. Damba: fix all of them except #8 (`taydic uninstall Foo.app` by name says "Nothing matches"; cosmetic, he never types it), in two halves.
+     - Half 1: #5 sudo and `brew uninstall` could never ask in the terminal (see "Root-owned files": `Spawn`); #1 what a second copy or an app by the same name uses stays; #2 pkg files inside another app stay; #3 Apple's names only match by bundle ID; #4 `trashItem` on a symlink moves the link, not its target (real-Trash test, passed).
+     - Half 2: #6 Library locations taydic can't list are named in the Full Disk Access block; #7 a read-only volume is Protected, not "needs sudo"; #9 `junk large` looks inside a `target`/`.build`/`node_modules` that isn't a build folder; #10 old `tidy` in comments.
+   - Then install as `~/.local/bin/taydic` (ask first, and whether it becomes 0.2.0) with the PATH line he adds himself.
+   - **Commits (Damba's rule for this phase):** nothing is committed until he has tested it. Fixes 1–6: one commit (done); 7–12: the next (done); then the rename (done); then the final review's fixes, one commit per half, each pushed after his test.
 
 **Where things stand (2026-10-19):** phases 0–7 are done and tested by Damba with `--dry-run`; version 0.1.0 (commit `6b99f8c`) is installed as `~/.local/bin/tidy` (the old name, without the phase 8 fixes, and not in his PATH). Phase 8 is in progress, see above. Real removals have been tried once, on purpose and small (`junk orphans` and `junk caches`, user-owned items only): Trash, log and "Put Back" work. Never run for real yet: the sudo path, `launchctl bootout`, `brew uninstall`, quitting a running app.
 

@@ -111,9 +111,24 @@ func leftoverNamesMatch(entry: String, expected: Leftover.Match) {
     #expect(Leftovers.match(entry, bundleID: "com.hnc.Discord", names: ["discord"]) == expected)
 }
 
-@Test(arguments: ["com.spotify.client", "Google", "com.apple.discord.helper", "dis", "com.hnc.Discor"])
+@Test(arguments: [
+    "com.spotify.client", "Google", "com.apple.discord.helper", "dis", "com.hnc.Discor",
+    // Apple's, even where the name doesn't start with com.apple.
+    "group.com.apple.discord", "2BUA8C4S2C.com.apple.discord.plist",
+])
 func unrelatedEntriesDontMatch(entry: String) {
     #expect(Leftovers.match(entry, bundleID: "com.hnc.Discord", names: ["discord"]) == nil)
+}
+
+@Test func applesOwnFilesOnlyMatchThroughTheBundleID() {
+    // An app called Notes never gets the Notes database; Apple's Pages still finds its own group container.
+    #expect(Leftovers.match("group.com.apple.notes", bundleID: "com.example.notes", names: ["notes"]) == nil)
+    #expect(Leftovers.match("group.com.apple.Pages", bundleID: "com.apple.Pages", names: ["pages"]) == .bundleID)
+}
+
+/// Another app on this Mac, as Leftovers.otherApps returns it.
+private func other(_ bundleID: String?, at path: String, name: String? = nil, executable: String? = nil) -> App {
+    App(path: path, bundleID: bundleID, bundleName: name, displayName: nil, executable: executable, source: .manual)
 }
 
 @Test func genericAndShortNamesAreNotUsed() {
@@ -158,10 +173,12 @@ func unrelatedEntriesDontMatch(entry: String) {
     try fx.file("lib/Preferences/com.google.Chrome.plist")
     let locations = ["Caches", "Preferences"].map { fx.root + "/lib/" + $0 }
 
-    let chrome = Leftovers.find(bundleID: "com.google.Chrome", names: ["Google Chrome"], in: locations,
-                                others: ["com.google.Chrome.canary", "com.google.Chrome", "com.hnc.Discord"])
+    let chrome = Leftovers.find(bundleID: "com.google.Chrome", names: ["Google Chrome"], in: locations, others: [
+        other("com.google.Chrome.canary", at: "/Applications/Google Chrome Canary.app"),
+        other("com.hnc.Discord", at: "/Applications/Discord.app"),
+    ])
     let canary = Leftovers.find(bundleID: "com.google.Chrome.canary", names: ["Google Chrome Canary"], in: locations,
-                                others: ["com.google.Chrome"])
+                                others: [other("com.google.Chrome", at: "/Applications/Google Chrome.app")])
 
     #expect(chrome.map { ($0.path as NSString).lastPathComponent }
             == ["com.google.Chrome", "com.google.Chrome.helper", "com.google.Chrome.plist"])
@@ -169,17 +186,41 @@ func unrelatedEntriesDontMatch(entry: String) {
             == ["com.google.Chrome.canary", "com.google.Chrome.canary.plist"])
 }
 
+@Test func whatASecondCopyOrAnAppByTheSameNameUsesStays() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    try fx.folder("lib/Application Support/Firefox")                // regular Firefox's profiles too
+    try fx.folder("lib/Caches/org.mozilla.nightly")                 // Nightly's own
+    try fx.file("lib/Preferences/com.apple.dt.Xcode.plist")         // Xcode's, and Xcode-beta's
+    try fx.folder("lib/Caches/com.apple.dt.Xcode")
+    let locations = ["Application Support", "Caches", "Preferences"].map { fx.root + "/lib/" + $0 }
+
+    // Firefox Nightly's executable is "firefox", just like Firefox's.
+    let nightly = Leftovers.find(bundleID: "org.mozilla.nightly", names: ["Firefox Nightly", "firefox"], in: locations,
+                                 others: [other("org.mozilla.firefox", at: "/Applications/Firefox.app", executable: "firefox")])
+    // Xcode-beta has the same bundle ID as Xcode.
+    let beta = Leftovers.find(bundleID: "com.apple.dt.Xcode", names: ["Xcode-beta", "Xcode"], in: locations,
+                              others: [other("com.apple.dt.Xcode", at: "/Applications/Xcode.app", name: "Xcode")])
+    let alone = Leftovers.find(bundleID: "org.mozilla.nightly", names: ["Firefox Nightly", "firefox"], in: locations,
+                               others: [])
+
+    #expect(nightly.map { ($0.path as NSString).lastPathComponent } == ["org.mozilla.nightly"])
+    #expect(beta.isEmpty)
+    #expect(alone.map { ($0.path as NSString).lastPathComponent } == ["org.mozilla.nightly", "Firefox"])
+}
+
 @Test func anAppsOwnHelpersAreNoOtherApps() {
-    let chrome = App(path: "/Applications/Google Chrome.app", bundleID: "com.google.Chrome", bundleName: nil,
-                     displayName: nil, executable: nil, source: .manual)
+    let chrome = other("com.google.Chrome", at: "/Applications/Google Chrome.app")
     let canary = "/Applications/Google Chrome Canary.app"
-    let others = Leftovers.otherAppIDs(than: chrome, among: [
-        (id: "com.google.Chrome", path: chrome.path),
-        (id: "com.google.Chrome.canary", path: canary),
-        (id: "com.google.Chrome.helper", path: chrome.path + "/Contents/Frameworks/Google Chrome Helper.app"),
-        (id: "com.google.Chrome.canary.helper", path: canary + "/Contents/Frameworks/Helper.app"),
-    ])
-    #expect(others == ["com.google.Chrome.canary", "com.google.Chrome.canary.helper"])
+    let apps = [
+        chrome,
+        other("com.google.Chrome.canary", at: canary),
+        other("com.google.Chrome.helper", at: chrome.path + "/Contents/Frameworks/Google Chrome Helper.app"),
+        other("com.google.Chrome.canary.helper", at: canary + "/Contents/Frameworks/Helper.app"),
+    ]
+    #expect(Leftovers.otherApps(than: chrome, among: apps).compactMap(\.bundleID)
+            == ["com.google.Chrome.canary", "com.google.Chrome.canary.helper"])
+    #expect(Leftovers.otherApps(than: nil, among: apps).count == 4)  // a formula: every app is another app
 }
 
 @Test func pkgReceiptFilesBecomeLeftovers() throws {
@@ -198,13 +239,38 @@ func unrelatedEntriesDontMatch(entry: String) {
         "usr/local/bin/gone",  // no longer on disk
     ]
 
-    let found = Leftovers.pkgPaths(files: files, root: fx.root + "/root", app: app)
+    let found = Leftovers.pkgPaths(files: files, root: fx.root + "/root", app: app, others: [])
 
     #expect(found.map(\.path) == [
         fx.root + "/root/Library/Application Support/Foo",  // the whole folder named after the app
         fx.root + "/root/usr/local/bin/foo-cli",
     ])
     #expect(found.allSatisfy { $0.match == .pkgReceipt })
+}
+
+@Test func pkgFilesOfAnotherAppStayOut() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    // One .pkg installed both apps, in a folder named after the first one.
+    let path = try makeApp(fx, "root/Applications/Foo/Foo.app", bundleID: "com.example.foo", executable: "Foo")
+    let app = try #require(AppFinder.load(path))
+    let bar = try #require(AppFinder.load(try makeApp(fx, "root/Applications/Foo/Bar.app", bundleID: "com.example.bar")))
+    try fx.file("root/Applications/Foo/Bar.app/Contents/MacOS/Bar")
+    try fx.file("root/Applications/Foo/readme.txt")
+    try fx.file("root/Library/Application Support/Foo/data.db")
+    let files = [
+        "Applications/Foo/Foo.app/Contents/Info.plist",
+        "Applications/Foo/Bar.app/Contents/MacOS/Bar",  // inside the other app
+        "Applications/Foo/readme.txt",                 // its folder holds the other app: only the file
+        "Library/Application Support/Foo/data.db",
+    ]
+
+    let found = Leftovers.pkgPaths(files: files, root: fx.root + "/root", app: app, others: [bar])
+
+    #expect(found.map(\.path) == [
+        fx.root + "/root/Applications/Foo/readme.txt",
+        fx.root + "/root/Library/Application Support/Foo",
+    ])
 }
 
 @Test func mergeKeepsTheStrongestMatchAndDropsNestedItems() {

@@ -490,3 +490,23 @@ func realTrashMovesFixturesAndLogsThem() throws {
     let lines = try String(contentsOfFile: fx.log.path, encoding: .utf8).split(separator: "\n")
     #expect(lines.allSatisfy { $0.contains("\t\(Paths.home)/.Trash/tidy-test-") })
 }
+
+/// Uses the real Trash too: moves one symlink (to a fixture folder) into ~/.Trash. The link must go,
+/// what it points to must stay. Runs only with TIDY_TRASH_TESTS=1.
+@Test(.enabled(if: ProcessInfo.processInfo.environment["TIDY_TRASH_TESTS"] == "1"))
+func realTrashMovesASymlinkNotWhatItPointsTo() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let target = try fx.folder("home/tidy-test-target")
+    try fx.file("home/tidy-test-target/keep.txt")
+    let link = fx.home + "/tidy-test-link"
+    try FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: target)
+
+    let destination = try Trash.move(link, home: fx.home, using: Trash.system)
+
+    var st = stat()
+    #expect(!Paths.exists(link))
+    #expect(Paths.exists(target + "/keep.txt"))
+    #expect(destination.hasPrefix(Paths.home + "/.Trash/tidy-test-link"))
+    #expect(lstat(destination, &st) == 0 && (st.st_mode & S_IFMT) == S_IFLNK)
+}

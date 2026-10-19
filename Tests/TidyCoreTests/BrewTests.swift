@@ -109,7 +109,7 @@ private func formula(_ name: String) -> Candidate {
 
 /// Runs BrewFlow with fakes for brew, the questions and the safety core. macOS's own tools: the fixture's bin/.
 private func flow(_ candidate: Candidate, in fx: Fixture, _ t: Transcript, _ brew: FakeBrew, dryRun: Bool = false,
-                  others: [String] = []) -> Bool {
+                  others: [App] = []) -> Bool {
     BrewFlow.run(
         candidate, dryRun: dryRun, say: t.say, ask: t.ask, home: fx.home, toolFolders: [fx.root + "/bin"],
         others: others, query: brew.query, brew: brew.run,
@@ -200,7 +200,9 @@ private func flow(_ candidate: Candidate, in fx: Fixture, _ t: Transcript, _ bre
     let t = Transcript()
     t.answers = [true, false, true]  // uninstall: yes, --zap: no, leftovers: yes
 
-    #expect(flow(cask, in: fx, t, brew, others: ["com.example.tidytest.beta"]))
+    let installedBeta = App(path: fx.root + "/apps/TidyTest Beta.app", bundleID: "com.example.tidytest.beta",
+                            bundleName: nil, displayName: nil, executable: nil, source: .manual)
+    #expect(flow(cask, in: fx, t, brew, others: [installedBeta]))
 
     #expect(!Paths.exists(own))
     #expect(Paths.exists(beta))

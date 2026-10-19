@@ -78,19 +78,19 @@ public enum Brew {
         return String(decoding: data, as: UTF8.self)
     }
 
-    /// Runs brew in the user's terminal (its output shows) and returns the exit status.
+    /// Runs brew in the user's terminal (its output shows, and it can ask for a password) and returns
+    /// the exit status. No auto-update.
     public static func run(_ arguments: [String]) -> Int32 {
-        let process = brewProcess(arguments)
-        do { try process.run() } catch { return -1 }
-        process.waitUntilExit()
-        return process.terminationStatus
+        Spawn.run(executable, arguments, environment: noAutoUpdate)
     }
+
+    private static let noAutoUpdate = ["HOMEBREW_NO_AUTO_UPDATE": "1"]
 
     private static func brewProcess(_ arguments: [String]) -> Process {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
-        process.environment = ProcessInfo.processInfo.environment.merging(["HOMEBREW_NO_AUTO_UPDATE": "1"]) { $1 }
+        process.environment = ProcessInfo.processInfo.environment.merging(noAutoUpdate) { $1 }
         return process
     }
 
