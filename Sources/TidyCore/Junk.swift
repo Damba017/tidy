@@ -130,6 +130,7 @@ public enum Junk {
         return runtimes.values.flatMap { $0 }
             .filter { ($0["isAvailable"] as? Bool) == false }
             .compactMap { $0["udid"] as? String }
+            .filter { UUID(uuidString: $0) != nil }  // it becomes part of a path: a UUID and nothing else
             .sorted()
     }
 

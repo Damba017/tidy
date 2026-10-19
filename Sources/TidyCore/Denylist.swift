@@ -44,8 +44,10 @@ public enum Denylist {
             ("/dev", "devices"),
             ("/private/etc", "system configuration"),
             ("/private/var/db", "system databases"),
+            ("/private/var", "macOS system data"),  // temp files of running apps, root's home, logs, …
             ("/Library/Apple", "Apple system files"),
             ("/Library/Keychains", "system keychains"),
+            ("/Library/Preferences/SystemConfiguration", "network settings"),
             (home + "/Library/Keychains", "keychains"),
             (home + "/Library/Mail", "Mail"),
             (home + "/Library/Messages", "Messages"),

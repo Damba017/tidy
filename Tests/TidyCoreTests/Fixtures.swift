@@ -22,7 +22,7 @@ struct Fixture {
         guard path.hasPrefix("/private/tmp/tidy-test/") else {
             throw TidyError("test tried to trash \(path), outside /tmp/tidy-test")
         }
-        let destination = Trash.freeDestination(for: path, in: trashFolder)
+        let destination = try Trash.freeDestination(for: path, in: trashFolder)
         try FileManager.default.moveItem(atPath: path, toPath: destination)
         return destination
     }

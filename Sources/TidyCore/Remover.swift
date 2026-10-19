@@ -153,20 +153,32 @@ public enum Remover {
                 say("sudo asks for your password once. Finder's \"Put Back\" won't work for these;")
                 say("the log records where they came from. Emptying the Trash will ask for your password too.")
                 if sudo(["-v"]) == 0 {
-                    for item in root {
+                    for (index, item) in root.enumerated() {
                         if let reason = Denylist.reason(for: item.path, home: plan.home) {
                             failed(item, "refused \(Paths.display(item.path)): \(reason)", sudo: true)
                             continue
+                        }
+                        // The name in the Trash first: when tidy can't see what's there, nothing is stopped or moved.
+                        let destination: String
+                        do {
+                            destination = try Trash.freeDestination(for: item.path, in: plan.home + "/.Trash")
+                        } catch {
+                            say("\(error): nothing more is moved with sudo.")
+                            for rest in root[index...] { failed(rest, "\(Paths.display(rest.path)): not moved", sudo: true) }
+                            break
                         }
                         switch Launchctl.domain(of: item.path) {
                         case .user: _ = launchctl(Launchctl.bootout(item.path, in: .user))
                         case .system: _ = sudo(["-n", "/bin/launchctl"] + Launchctl.bootout(item.path, in: .system))
                         case nil: break
                         }
-                        let destination = Trash.freeDestination(for: item.path, in: plan.home + "/.Trash")
                         let status = sudo(Sudo.moveCommand(from: item.path, to: destination))
                         if status == 0 && !Paths.exists(item.path) && Paths.exists(destination) {
                             moved(item, to: destination, sudo: true)
+                        } else if status == 0 && Paths.exists(item.path) {
+                            // mv -n never overwrites: someone took the name in the meantime.
+                            failed(item, "\(Paths.display(item.path)): not moved, \(Paths.display(destination)) was taken",
+                                   sudo: true)
                         } else {
                             failed(item, "\(Paths.display(item.path)): sudo mv failed (exit \(status))", sudo: true)
                         }

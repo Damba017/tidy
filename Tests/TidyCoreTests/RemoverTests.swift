@@ -177,6 +177,22 @@ func run(_ plan: RemovalPlan, in fx: Fixture, _ t: Transcript, dryRun: Bool = fa
     #expect(lines[0].contains("\t\(a)\t\(fx.trashFolder)/a.txt\t"))
 }
 
+@Test func oddCharactersInAPathKeepTheLogAtOneLinePerItem() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let odd = try fx.file("home/tab\there\nnewline\\backslash")
+    let t = Transcript()
+    t.answer = true
+
+    let result = run(RemovalPlan(paths: [odd], home: fx.home), in: fx, t)
+
+    #expect(result.moved == 1)
+    let text = try String(contentsOfFile: fx.log.path, encoding: .utf8)
+    #expect(text.split(separator: "\n").count == 1)
+    #expect(text.split(separator: "\t").count == 6)  // time, moved, size, original, destination, sudo
+    #expect(text.contains("/tab\\there\\nnewline\\\\backslash\t"))
+}
+
 @Test func trashRefusesProtectedPathsEvenIfThePlanSaysOtherwise() throws {
     let fx = try Fixture()
     defer { fx.remove() }
@@ -210,9 +226,31 @@ func run(_ plan: RemovalPlan, in fx: Fixture, _ t: Transcript, dryRun: Bool = fa
         ["-n", "/bin/mv", "-n", "--", a, fx.home + "/.Trash/x"],
         ["-n", "/bin/mv", "-n", "--", b, fx.home + "/.Trash/b.plist"],
     ])
-    // The fake sudo moved nothing, so both must be reported as failed, not as moved.
+    // The fake sudo moved nothing, so both must be reported as failed, not as moved. Exit 0 with the item
+    // still there is what mv -n does when the name is taken.
     #expect(result.moved == 0)
     #expect(result.failed == 2)
+    #expect(t.lines.filter { $0.contains("not moved") && $0.contains("was taken") }.count == 2)
+}
+
+@Test func sudoStopsWhenTheTrashCantBeChecked() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let daemon = try fx.file("home/Library/LaunchDaemons/com.example.daemon.plist")
+    let other = try fx.file("home/b.plist")
+    let trash = try fx.folder("home/.Trash")
+    chmod(trash, 0)  // like privacy protection: tidy can't see which names are taken
+    defer { chmod(trash, 0o755) }
+    let items = [daemon, other].map { RemovalPlan.Item(path: $0, size: 10, status: .sudo) }
+    let t = Transcript()
+    t.answer = true
+
+    let result = run(RemovalPlan(items: items, home: fx.home), in: fx, t)
+
+    #expect(t.events == ["sudo -v"])  // no launchd job stopped, nothing moved
+    #expect(result.failed == 2)
+    #expect(t.lines.contains { $0.contains("can't look into") && $0.hasSuffix("nothing more is moved with sudo.") })
+    #expect(Paths.exists(daemon) && Paths.exists(other))
 }
 
 @Test func sudoIsNotUsedWhenThePasswordCheckFails() throws {

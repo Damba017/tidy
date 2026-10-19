@@ -203,9 +203,10 @@ func plainNamesAreNoBundleIDs(entry: String) {
 @Test func unavailableSimulatorsFromSimctlJSON() {
     let json = """
     {"devices": {"com.apple.CoreSimulator.SimRuntime.iOS-17-0": [
-      {"udid": "AAAA", "isAvailable": false, "name": "iPhone 15"},
-      {"udid": "BBBB", "isAvailable": true, "name": "iPhone 15 Pro"}]}}
+      {"udid": "0A1B2C3D-AAAA-BBBB-CCCC-123456789ABC", "isAvailable": false, "name": "iPhone 15"},
+      {"udid": "0A1B2C3D-AAAA-BBBB-CCCC-123456789ABD", "isAvailable": true, "name": "iPhone 15 Pro"},
+      {"udid": "../..", "isAvailable": false, "name": "not a UUID, so never part of a path"}]}}
     """
-    #expect(Junk.unavailableSimulators(json) == ["AAAA"])
+    #expect(Junk.unavailableSimulators(json) == ["0A1B2C3D-AAAA-BBBB-CCCC-123456789ABC"])
     #expect(Junk.unavailableSimulators("nonsense").isEmpty)
 }

@@ -8,7 +8,9 @@ public enum Paths {
     /// parent folders resolved. The last component is never resolved: removing a symlink
     /// removes the link, never its target. Its case comes from the disk, though: on a
     /// case-insensitive volume `~/library` is `~/Library`. Paths on the boot data volume
-    /// (`/System/Volumes/Data/...`) are mapped back to their normal location.
+    /// (`/System/Volumes/Data/...`) are mapped back to their normal location when they're
+    /// in a firmlinked folder (`/Users`, `/Applications`, `/usr/local`, …), the only place
+    /// where that's the same file; anything else there keeps its full path.
     public static func normalize(_ path: String) -> String {
         var p = (path as NSString).expandingTildeInPath
         if !p.hasPrefix("/") { p = FileManager.default.currentDirectoryPath + "/" + p }
@@ -21,10 +23,27 @@ public enum Paths {
             p = (parent == "/" ? "" : parent) + "/" + (storedName(of: name, in: parent) ?? name)
         }
 
-        let data = "/System/Volumes/Data"
-        if p == data { return "/" }
-        if p.hasPrefix(data + "/") { p.removeFirst(data.count) }
+        if p == dataVolume { return "/" }
+        if p.hasPrefix(dataVolume + "/"), isFirmlinked(String(p.dropFirst(dataVolume.count))) {
+            p.removeFirst(dataVolume.count)
+        }
         return p
+    }
+
+    static let dataVolume = "/System/Volumes/Data"
+
+    /// True when `path` (e.g. "/Users/damba/x") lies in a folder the boot data volume shares with the
+    /// system volume through a firmlink, so it's the same file as `/System/Volumes/Data` + `path`.
+    static func isFirmlinked(_ path: String) -> Bool {
+        var prefix = ""
+        for component in path.split(separator: "/") {
+            prefix += "/" + component
+            var onData = stat()
+            var plain = stat()
+            guard lstat(dataVolume + prefix, &onData) == 0 else { return false }
+            if lstat(prefix, &plain) == 0, onData.st_dev == plain.st_dev, onData.st_ino == plain.st_ino { return true }
+        }
+        return false
     }
 
     /// `~/…` for paths in the home folder, the path itself otherwise.

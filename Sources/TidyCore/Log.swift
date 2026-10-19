@@ -23,12 +23,20 @@ public struct Log: Sendable {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd HH:mm:ss Z"
-        let line = ([formatter.string(from: Date())] + fields).joined(separator: "\t") + "\n"
+        let line = ([formatter.string(from: Date())] + fields.map(Self.escape)).joined(separator: "\t") + "\n"
         try FileManager.default.createDirectory(atPath: Paths.parent(path), withIntermediateDirectories: true)
         guard let file = fopen(path, "a") else {
             throw TidyError("can't open the log \(Paths.display(path)): \(String(cString: strerror(errno)))")
         }
         defer { fclose(file) }
         fputs(line, file)
+    }
+
+    /// A tab or newline in a path would break its line apart: they're written as \t and \n (and \ as \\).
+    static func escape(_ field: String) -> String {
+        field.replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\t", with: "\\t")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
     }
 }

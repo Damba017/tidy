@@ -31,16 +31,23 @@ public enum Trash {
     }
 
     /// A path in `trashFolder` that isn't taken yet: `name`, `name 2`, `name 3`, … (extension kept).
-    public static func freeDestination(for path: String, in trashFolder: String) -> String {
+    /// Throws when it can't tell whether a name is taken (e.g. privacy protection on the Trash):
+    /// a guess could move the item onto, or into, something that's already there.
+    public static func freeDestination(for path: String, in trashFolder: String) throws -> String {
         let name = (path as NSString).lastPathComponent
         let ext = (name as NSString).pathExtension
         let base = ext.isEmpty ? name : (name as NSString).deletingPathExtension
         var candidate = trashFolder + "/" + name
         var number = 2
-        while Paths.exists(candidate) {
+        while true {
+            var st = stat()
+            if lstat(candidate, &st) != 0 {
+                let error = errno
+                if error == ENOENT { return candidate }
+                throw TidyError("can't look into \(Paths.display(trashFolder)): \(String(cString: strerror(error)))")
+            }
             candidate = trashFolder + "/" + base + " \(number)" + (ext.isEmpty ? "" : "." + ext)
             number += 1
         }
-        return candidate
     }
 }

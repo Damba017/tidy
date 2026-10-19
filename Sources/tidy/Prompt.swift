@@ -17,7 +17,7 @@ func choose(_ question: String) -> Remover.Choice {
 }
 
 /// The trimmed, lowercased first letter of the answer ("yes" → "y"), or "" for Enter, end of input
-/// or no terminal.
+/// or no terminal. Only what's typed after the question shows counts.
 private func readAnswer(_ prompt: String) -> String {
     print(prompt + " ", terminator: "")
     fflush(stdout)
@@ -25,6 +25,8 @@ private func readAnswer(_ prompt: String) -> String {
         print("\nNot an interactive terminal: answering No.")
         return ""
     }
+    // A "y⏎" typed while the plan was still being worked out never answers this question.
+    tcflush(STDIN_FILENO, TCIFLUSH)
     guard let line = readLine() else {
         print()
         return ""

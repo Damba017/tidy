@@ -31,6 +31,9 @@ import Testing
     "/private/tmp", "/tmp",
     // The disk ignores case, so the denylist does too.
     "~/LIBRARY", "~/library/keychains", "~/applications", "~/.local/state/TIDY", "/APPLICATIONS", "/system/library",
+    // macOS's own data: temp files of running apps, root's home, the network settings.
+    "/private/var/folders", "/var/folders/xy", "/private/var/root", "/private/var/log",
+    "/Library/Preferences/SystemConfiguration", "/Library/Preferences/SystemConfiguration/preferences.plist",
 ])
 func protectedPathsAreRefused(path: String) {
     #expect(Denylist.reason(for: Paths.normalize(path)) != nil, "\(path) should be protected")
@@ -38,11 +41,24 @@ func protectedPathsAreRefused(path: String) {
 
 @Test(arguments: [
     "/usr/local/bin/fastfetch", "/Applications/Discord.app", "/Library/Caches/com.example",
+    "/Library/Preferences/com.example.plist",
     "~/Library/Caches/com.hnc.Discord", "~/Library/Application Support/discord", "~/.config/fastfetch",
     "~/Downloads/big.iso", "/tmp/tidy-test/x",
 ])
 func ordinaryPathsMayBeOffered(path: String) {
     #expect(Denylist.reason(for: Paths.normalize(path)) == nil, "\(path) should be allowed")
+}
+
+@Test func onlyFirmlinkedDataVolumePathsAreMapped() {
+    // Firmlinked folders are the same file on both sides.
+    #expect(Paths.normalize("/System/Volumes/Data/Users") == "/Users")
+    #expect(Paths.normalize("/System/Volumes/Data/usr/local") == "/usr/local")
+    #expect(Paths.normalize("/System/Volumes/Data/Applications/Nope.app") == "/Applications/Nope.app")
+    // /home on the sealed system is a different thing (a symlink); the other one isn't there at all.
+    for path in ["/System/Volumes/Data/home", "/System/Volumes/Data/tidy-test-nothing-here"] {
+        #expect(Paths.normalize(path) == path)
+        #expect(Denylist.reason(for: path) != nil)
+    }
 }
 
 @Test func normalizeTakesTheCaseFromTheDisk() throws {
@@ -120,11 +136,21 @@ func ordinaryPathsMayBeOffered(path: String) {
     let fx = try Fixture()
     defer { fx.remove() }
     let trash = try fx.folder("trash")
-    #expect(Trash.freeDestination(for: "/x/Foo.app", in: trash) == trash + "/Foo.app")
+    #expect(try Trash.freeDestination(for: "/x/Foo.app", in: trash) == trash + "/Foo.app")
     try fx.folder("trash/Foo.app")
-    #expect(Trash.freeDestination(for: "/x/Foo.app", in: trash) == trash + "/Foo 2.app")
+    #expect(try Trash.freeDestination(for: "/x/Foo.app", in: trash) == trash + "/Foo 2.app")
     try fx.folder("trash/Foo 2.app")
-    #expect(Trash.freeDestination(for: "/x/Foo.app", in: trash) == trash + "/Foo 3.app")
+    #expect(try Trash.freeDestination(for: "/x/Foo.app", in: trash) == trash + "/Foo 3.app")
     try fx.file("trash/notes")
-    #expect(Trash.freeDestination(for: "/y/notes", in: trash) == trash + "/notes 2")
+    #expect(try Trash.freeDestination(for: "/y/notes", in: trash) == trash + "/notes 2")
+}
+
+@Test func freeDestinationNeverGuesses() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let trash = try fx.folder("locked-trash")
+    chmod(trash, 0)  // can't look inside, like a Trash behind privacy protection
+    defer { chmod(trash, 0o755) }
+
+    #expect(throws: TidyError.self) { try Trash.freeDestination(for: "/x/Foo.app", in: trash) }
 }
