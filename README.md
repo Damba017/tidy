@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" alt="tidy" width="320">
+</p>
+
 # taydic
 
 A macOS command-line tool that keeps a Mac tidy, in three parts:
