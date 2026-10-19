@@ -171,15 +171,20 @@ public enum Junk {
         var argv: [UnsafeMutablePointer<CChar>?] = [cPath, nil]
         guard let fts = fts_open(&argv, FTS_PHYSICAL | FTS_XDEV | FTS_NOCHDIR, nil) else { return ([], 0, []) }
         defer { fts_close(fts) }
+        // A folder named like a build folder that isn't one (a Maven project's target, a tool's own
+        // node_modules): looked into for large files, but nothing in it counts as dev junk.
+        var notBuild: String?
         while let entry = fts_read(fts) {
             let info = Int32(entry.pointee.fts_info)
             let path = String(cString: entry.pointee.fts_path)
             let name = (path as NSString).lastPathComponent
-            if info == FTS_D {
+            if info == FTS_DP {
+                if path == notBuild { notBuild = nil }  // out of it again
+            } else if info == FTS_D {
                 if path == home { continue }
                 // Tools keep their own installs in hidden folders in ~ (~/.vscode/extensions, ~/.bun, …):
                 // a node_modules or venv in there is part of an install, not a build folder.
-                let inToolFolder = path.dropFirst(home.count + 1).hasPrefix(".")
+                let devJunkHere = !path.dropFirst(home.count + 1).hasPrefix(".") && notBuild == nil
                 if path == home + "/Library" || path == home + "/.Trash" || name == ".git"
                     || path == home + "/.local/share/uv" {  // uv's own Pythons and tools
                     fts_set(fts, entry, FTS_SKIP)
@@ -187,15 +192,18 @@ public enum Junk {
                     // Never look inside a virtual environment; a stale project's one is offered whole.
                     fts_set(fts, entry, FTS_SKIP)
                     let project = Paths.parent(path)
-                    if !inToolFolder, pythonManifests.contains(where: { Paths.exists(project + "/" + $0) }),
+                    if devJunkHere, pythonManifests.contains(where: { Paths.exists(project + "/" + $0) }),
                        isPlainVenv(path), (lastChange(in: project, ignoring: name) ?? now) < staleBefore {
                         dev.append(JunkItem(path: path, label: "Python virtual environment", group: groupDev,
                                             checked: true, note: nil))
                     }
                 } else if let build = buildFolders[name] {
-                    fts_set(fts, entry, FTS_SKIP)
                     let project = Paths.parent(path)
-                    guard !inToolFolder, build.manifest.map({ Paths.exists(project + "/" + $0) }) ?? true else { continue }
+                    guard devJunkHere, build.manifest.map({ Paths.exists(project + "/" + $0) }) ?? true else {
+                        if notBuild == nil { notBuild = path }
+                        continue
+                    }
+                    fts_set(fts, entry, FTS_SKIP)
                     if !build.stale || (lastChange(in: project, ignoring: name) ?? now) < staleBefore {
                         dev.append(JunkItem(path: path, label: build.label, group: groupDev, checked: true, note: nil))
                     }

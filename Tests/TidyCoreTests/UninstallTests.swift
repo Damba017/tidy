@@ -223,6 +223,20 @@ private func other(_ bundleID: String?, at path: String, name: String? = nil, ex
     #expect(Leftovers.otherApps(than: nil, among: apps).count == 4)  // a formula: every app is another app
 }
 
+@Test func foldersTaydicCantLookInAreNamed() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let locked = try fx.folder("lib/Cookies")
+    let readable = try fx.folder("lib/Caches")
+    chmod(locked, 0)  // like ~/Library/Cookies behind privacy protection (that one gives EPERM)
+    defer { chmod(locked, 0o755) }
+
+    let found = Leftovers.unreadable([locked, readable, fx.root + "/lib/Not There"])
+
+    #expect(found.map(\.path) == [locked])
+    #expect(found.first?.reason == "Permission denied")
+}
+
 @Test func pkgReceiptFilesBecomeLeftovers() throws {
     let fx = try Fixture()
     defer { fx.remove() }

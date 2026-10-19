@@ -1,6 +1,6 @@
 import Foundation
 
-/// One thing `tidy uninstall` can remove, with how it was installed. The tool decides the source,
+/// One thing `taydic uninstall` can remove, with how it was installed. The tool decides the source,
 /// never the user: a .app that belongs to a cask is one candidate, labelled Homebrew cask.
 public struct Candidate: Sendable, Equatable {
     public enum Source: String, Sendable {

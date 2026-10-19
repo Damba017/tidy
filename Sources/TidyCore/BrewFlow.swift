@@ -1,6 +1,6 @@
 import Foundation
 
-/// The Homebrew part of `tidy uninstall`, one package at a time: warn about dependents, ask,
+/// The Homebrew part of `taydic uninstall`, one package at a time: warn about dependents, ask,
 /// `brew uninstall` (brew owns that step), then the leftovers through the safety core.
 public enum BrewFlow {
     /// True when the package was uninstalled, or would be in a dry run.
@@ -68,6 +68,11 @@ public enum BrewFlow {
         if let macOSTool, !kept.isEmpty {
             say("Kept \(kept.map(Paths.display).joined(separator: ", ")): macOS's own \(package.name) "
                 + "(\(macOSTool)) uses \(kept.count == 1 ? "it" : "them") too.")
+        }
+        let notSearched = Leftovers.unreadable(Leftovers.locations(home: home))
+        if !notSearched.isEmpty {
+            say("Not searched, so leftovers in there can't be found:")
+            notSearched.forEach { say("  \(Paths.display($0.path))  (\($0.reason))") }
         }
         // The cask's app (and so its bundle ID) came from before the uninstall, so it still counts.
         let leftovers = Leftovers.merge(

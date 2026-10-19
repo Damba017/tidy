@@ -157,6 +157,24 @@ func plainNamesAreNoBundleIDs(entry: String) {
     #expect(walked.large.map(\.path) == [big])
 }
 
+@Test func foldersOnlyNamedLikeBuildFoldersAreLookedInto() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    // A Maven project's target: no Cargo.toml next to it, so no Rust build folder, but its files still count.
+    try fx.file("home/code/maven/pom.xml")
+    let jar = try fx.file("home/code/maven/target/app.jar", bytes: 300_000)
+    // Nothing inside it is dev junk, not even what looks like a stale Node project.
+    try fx.file("home/code/maven/target/web/node_modules/x/index.js")
+    age(try fx.file("home/code/maven/target/web/package.json"), days: 90)
+    var options = JunkOptions()
+    options.minSize = 200_000
+
+    let walked = Junk.walk(home: fx.home, options: options, now: Date())
+
+    #expect(walked.large.map(\.path) == [jar])
+    #expect(walked.dev.isEmpty)
+}
+
 @Test func aVenvWithYourOwnCodeInItIsNeverOffered() throws {
     let fx = try Fixture()
     defer { fx.remove() }

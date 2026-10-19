@@ -136,6 +136,20 @@ private func flow(_ candidate: Candidate, in fx: Fixture, _ t: Transcript, _ bre
     #expect(Paths.exists(config))
 }
 
+@Test func libraryFoldersBrewLeftoversCantBeSearchedInAreNamed() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let cookies = try fx.folder("home/Library/Cookies")
+    chmod(cookies, 0)
+    defer { chmod(cookies, 0o755) }
+    let t = Transcript()
+
+    _ = flow(formula("tidytesttool"), in: fx, t, FakeBrew(), dryRun: true)
+
+    #expect(t.lines.contains("Not searched, so leftovers in there can't be found:"))
+    #expect(t.lines.contains("  \(cookies)  (Permission denied)"))
+}
+
 @Test func sayingNoSkipsBrewAndTheLeftovers() throws {
     let fx = try Fixture()
     defer { fx.remove() }

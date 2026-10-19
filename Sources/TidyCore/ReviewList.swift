@@ -155,7 +155,7 @@ public struct ReviewList: Sendable {
     }
 }
 
-/// The list for `tidy uninstall` without names (apps and brew packages): type to filter, space to select.
+/// The list for `taydic uninstall` without names (apps and brew packages): type to filter, space to select.
 public struct AppPicker: Sendable {
     public let candidates: [Candidate]
     public private(set) var filter = ""

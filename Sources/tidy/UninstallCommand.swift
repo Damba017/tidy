@@ -116,10 +116,18 @@ private func uninstallApps(_ apps: [App], dryRun: Bool, interactive: Bool, note:
         if let note { print(note) }
         selected = list.selectedPaths
     }
+    let notSearched = Leftovers.unreadable(Leftovers.locations())
     if !privacyProtected.isEmpty {
         print("")
         print("Not in the list: macOS won't let taydic touch these without Full Disk Access:")
         privacyProtected.forEach { print("  " + Paths.display($0)) }
+    }
+    if !notSearched.isEmpty {
+        print("")
+        print("Not searched, so leftovers in there aren't in the list either:")
+        notSearched.forEach { print("  \(Paths.display($0.path))  (\($0.reason))") }
+    }
+    if !privacyProtected.isEmpty || notSearched.contains(where: { $0.reason == RemovalPlan.privacyReason }) {
         print("To include them: System Settings → Privacy & Security → Full Disk Access → add your terminal app,")
         print("then run taydic again.")
     }

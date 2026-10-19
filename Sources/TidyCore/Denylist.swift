@@ -1,6 +1,6 @@
 import Foundation
 
-/// Paths tidy never offers to remove, whatever the matching says.
+/// Paths taydic never offers to remove, whatever the matching says.
 public enum Denylist {
     /// Why `path` may never be removed, or nil if it may be offered.
     public static func reason(for path: String, home: String = Paths.home) -> String? {

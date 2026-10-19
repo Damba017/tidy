@@ -70,6 +70,21 @@ public enum Leftovers {
         return merge(found)
     }
 
+    /// Folders among `folders` taydic can't look in, with why (mostly macOS privacy protection, e.g.
+    /// ~/Library/Cookies without Full Disk Access). Leftovers in there can't be found, so the user hears
+    /// about the folder instead. Folders that aren't there don't count.
+    public static func unreadable(_ folders: [String]) -> [(path: String, reason: String)] {
+        folders.compactMap { folder in
+            if let dir = opendir(folder) {
+                closedir(dir)
+                return nil
+            }
+            let error = errno
+            if error == ENOENT || error == ENOTDIR { return nil }
+            return (folder, error == EPERM ? RemovalPlan.privacyReason : String(cString: strerror(error)))
+        }
+    }
+
     /// The other apps on this Mac, installed or running. Reads only.
     public static func otherApps(than app: App?) -> [App] {
         let installed = AppFinder.installedApps()

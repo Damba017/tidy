@@ -6,7 +6,7 @@ public struct RemovalResult: Sendable {
     public var failed = 0
 }
 
-/// The only way tidy removes anything: show the whole plan, ask, then move to the Trash.
+/// The only way taydic removes anything: show the whole plan, ask, then move to the Trash.
 public enum Remover {
     /// The answer to the question about the doubtful items.
     public enum Choice: Sendable {
@@ -158,7 +158,7 @@ public enum Remover {
                             failed(item, "refused \(Paths.display(item.path)): \(reason)", sudo: true)
                             continue
                         }
-                        // The name in the Trash first: when tidy can't see what's there, nothing is stopped or moved.
+                        // The name in the Trash first: when taydic can't see what's there, nothing is stopped or moved.
                         let destination: String
                         do {
                             destination = try Trash.freeDestination(for: item.path, in: plan.home + "/.Trash")

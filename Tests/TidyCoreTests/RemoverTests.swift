@@ -90,6 +90,13 @@ func run(_ plan: RemovalPlan, in fx: Fixture, _ t: Transcript, dryRun: Bool = fa
     #expect(plan.items.map(\.status) == [.blocked("locked"), .sudo])  // EPERM: nobody; EACCES: root
 }
 
+@Test func onlyFilePermissionsAskForSudo() {
+    // A read-only volume (a mounted .dmg) can't be written by root either: never ask for the password there.
+    #expect(RemovalPlan.permission(forAccessError: EACCES) == .root)
+    #expect(RemovalPlan.permission(forAccessError: EROFS) == .nobody("read-only volume"))
+    #expect(RemovalPlan.permission(forAccessError: EPERM) == .nobody(RemovalPlan.privacyReason))
+}
+
 @Test func renderShowsEveryPathWithWhatHappensToIt() throws {
     let fx = try Fixture()
     defer { fx.remove() }
@@ -239,7 +246,7 @@ func run(_ plan: RemovalPlan, in fx: Fixture, _ t: Transcript, dryRun: Bool = fa
     let daemon = try fx.file("home/Library/LaunchDaemons/com.example.daemon.plist")
     let other = try fx.file("home/b.plist")
     let trash = try fx.folder("home/.Trash")
-    chmod(trash, 0)  // like privacy protection: tidy can't see which names are taken
+    chmod(trash, 0)  // like privacy protection: taydic can't see which names are taken
     defer { chmod(trash, 0o755) }
     let items = [daemon, other].map { RemovalPlan.Item(path: $0, size: 10, status: .sudo) }
     let t = Transcript()

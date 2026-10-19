@@ -162,16 +162,14 @@ public struct RemovalPlan: Sendable {
         case nobody(String)
     }
 
-    /// Who may move `path` out of its folder. EACCES means the file permissions say no, which root
-    /// gets past. EPERM means macOS itself says no (privacy protection or a lock), and sudo from a
-    /// terminal doesn't get past that either.
+    /// Who may move `path` out of its folder.
     static func permission(_ path: String, _ st: stat) -> Permission {
         if st.st_flags & (UInt32(UF_IMMUTABLE) | UInt32(SF_IMMUTABLE)) != 0 { return .nobody("locked") }
         let parent = Paths.parent(path)
         // Moving a folder rewrites its ".." entry, so the folder itself must be writable too.
         let targets = (st.st_mode & S_IFMT) == S_IFDIR ? [parent, path] : [parent]
         for target in targets where access(target, W_OK) != 0 {
-            return errno == EPERM ? .nobody(privacyReason) : .root
+            return permission(forAccessError: errno)
         }
         // In a sticky folder (like /tmp) only the owner of the item or of the folder may move it.
         var parentStat = stat()
@@ -180,6 +178,17 @@ public struct RemovalPlan: Sendable {
             return .root
         }
         return .user
+    }
+
+    /// What a failed `access(W_OK)` means. EACCES: the file permissions say no, which root gets past.
+    /// EPERM: macOS itself says no (privacy protection or a lock), and EROFS: a read-only volume
+    /// (a mounted .dmg); sudo from a terminal gets past neither.
+    static func permission(forAccessError error: Int32) -> Permission {
+        switch error {
+        case EPERM: .nobody(privacyReason)
+        case EROFS: .nobody("read-only volume")
+        default: .root
+        }
     }
 
     /// "3 items, 1.2 MB"
