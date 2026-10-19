@@ -56,7 +56,8 @@ public enum Denylist {
             (home + "/.ssh", "SSH keys"),
             (home + "/.gnupg", "GPG keys"),
             (home + "/.Trash", "already in the Trash"),
-            (home + "/.local/state/tidy", "tidy's own log"),
+            (home + "/.local/state/taydic", "taydic's own log"),
+            (home + "/.local/state/tidy", "taydic's old log, from when it was called tidy"),
         ]
     }
 

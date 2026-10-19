@@ -2,26 +2,26 @@ import Foundation
 import TidyCore
 
 let usage = """
-tidy \(Tidy.version) - uninstall apps, browse disk usage, find junk
+taydic \(Tidy.version) - uninstall apps, browse disk usage, find junk
 
 Usage:
-  tidy                       Main menu
-  tidy uninstall [name...]   Uninstall apps/brew packages and their leftovers
-  tidy disk [path]           Disk-usage browser
-  tidy junk [category]       Find junk: orphans | caches | large | dev
-  tidy --help, -h            Show this help
-  tidy --version             Show version
+  taydic                       Main menu
+  taydic uninstall [name...]   Uninstall apps/brew packages and their leftovers
+  taydic disk [path]           Disk-usage browser
+  taydic junk [category]       Find junk: orphans | caches | large | dev
+  taydic --help, -h            Show this help
+  taydic --version             Show version
 
 Options:
-  --dry-run                  Show exactly what would happen. Never touches anything.
-  --min-size SIZE            junk large: files at least this big (default 1GB; e.g. 500MB, 2GB)
-  --older-than DAYS          junk large: also files from 100MB unused this long (default 180)
+  --dry-run                    Show exactly what would happen. Never touches anything.
+  --min-size SIZE              junk large: files at least this big (default 1GB; e.g. 500MB, 2GB)
+  --older-than DAYS            junk large: also files from 100MB unused this long (default 180)
 
 Every destructive action asks (y/N) first. There is no --yes.
 """
 
 func fail(_ message: String, code: Int32 = 2) -> Never {
-    FileHandle.standardError.write(Data("tidy: \(message)\n".utf8))
+    FileHandle.standardError.write(Data("taydic: \(message)\n".utf8))
     exit(code)
 }
 
@@ -49,14 +49,14 @@ while !arguments.isEmpty {
         print(usage)
         exit(0)
     case "--version":
-        print("tidy \(Tidy.version)")
+        print("taydic \(Tidy.version)")
         exit(0)
     case "--dry-run":
         dryRun = true
     case "--yes", "-y":
         fail("--yes is not supported: every destructive action needs an interactive (y/N).")
     case _ where arg.hasPrefix("-"):
-        fail("unknown option '\(arg)'. See 'tidy --help'.")
+        fail("unknown option '\(arg)'. See 'taydic --help'.")
     default:
         positional.append(arg)
     }
@@ -81,10 +81,10 @@ case "junk":
     }
     exit(runJunk(category: category ?? nil, options: junkOptions, dryRun: dryRun))
 case "_plan":
-    // Dev aid, not in --help: shows what tidy would do with these paths. Always a dry run.
+    // Dev aid, not in --help: shows what taydic would do with these paths. Always a dry run.
     if rest.isEmpty { fail("'_plan' needs one or more paths.") }
     _ = Remover.run(RemovalPlan(paths: rest), dryRun: true, say: { print($0) }, ask: { _ in false }, choose: { _ in .none })
     exit(0)
 default:
-    fail("unknown command '\(command!)'. See 'tidy --help'.")
+    fail("unknown command '\(command!)'. See 'taydic --help'.")
 }

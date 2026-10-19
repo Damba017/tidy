@@ -1,7 +1,7 @@
 import Foundation
 import TidyCore
 
-/// `tidy` without arguments: a menu that runs the same flows as the subcommands, and comes back
+/// `taydic` without arguments: a menu that runs the same flows as the subcommands, and comes back
 /// after each one until the user quits.
 func runMenu(dryRun: Bool, junkOptions: JunkOptions) -> Int32 {
     guard isatty(STDIN_FILENO) == 1, isatty(STDOUT_FILENO) == 1 else {
@@ -41,7 +41,7 @@ private func pickFromMenu(dryRun: Bool) -> Int? {
     while true {
         let (height, width) = Terminal.size()
         let w = max(20, width - 1)
-        var lines = [fit("tidy \(Tidy.version)" + (dryRun ? "   [dry-run]" : ""), w), ""]
+        var lines = [fit("taydic \(Tidy.version)" + (dryRun ? "   [dry-run]" : ""), w), ""]
         for (index, option) in options.enumerated() {
             let line = fit("  \(option.0)  \(fit(option.1, 20))  \(option.2)", w)
             lines.append(index == cursor ? reverseVideo + line + resetStyle : line)

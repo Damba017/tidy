@@ -26,7 +26,8 @@ import Testing
     "~/Library/Messages", "~/Library/Mobile Documents", "~/Library/Mobile Documents/com~apple~CloudDocs",
     "~/Pictures", "~/Pictures/Photos Library.photoslibrary", "~/Library/Caches", "~/Library/Application Support",
     "~/Library/Preferences", "~/Library/Containers", "~/Desktop", "~/Documents", "~/Downloads",
-    "~/.Trash", "~/.Trash/something", "~/.local/state/tidy/log", "~/.ssh/id_ed25519",
+    "~/.Trash", "~/.Trash/something", "~/.local/state/tidy/log", "~/.local/state/taydic", "~/.local/state/taydic/log",
+    "~/.ssh/id_ed25519",
     "/System/Volumes/Data", "/System/Volumes/Data/Users", "/System/Volumes/Data/.Spotlight-V100",
     "/private/tmp", "/tmp",
     // The disk ignores case, so the denylist does too.

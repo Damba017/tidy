@@ -17,7 +17,7 @@ func review(_ list: ReviewList, title: String, dryRun: Bool, note: String? = nil
             status = "/\(list.search)" + (searching ? "▏" : "") + "   \(list.matchCount) matches   ·   " + status
         }
         var lines = [
-            fit("tidy \(title)  review what goes" + (dryRun ? "   [dry-run]" : ""), w),
+            fit("taydic \(title)  review what goes" + (dryRun ? "   [dry-run]" : ""), w),
             fit(status, w),
             String(repeating: "─", count: w),
         ]

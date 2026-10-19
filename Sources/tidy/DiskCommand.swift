@@ -1,17 +1,17 @@
 import Foundation
 import TidyCore
 
-/// `tidy disk [path]`: pick a volume (or take `path`), scan it, browse it.
+/// `taydic disk [path]`: pick a volume (or take `path`), scan it, browse it.
 func runDisk(path: String?, dryRun: Bool) -> Int32 {
     guard isatty(STDIN_FILENO) == 1, isatty(STDOUT_FILENO) == 1 else {
-        FileHandle.standardError.write(Data("tidy: 'disk' is an interactive browser and needs a terminal; it doesn't work when piped.\n".utf8))
+        FileHandle.standardError.write(Data("taydic: 'disk' is an interactive browser and needs a terminal; it doesn't work when piped.\n".utf8))
         return 2
     }
     var root = ""
     var systemSize: Int64?
     if let path {
         guard let resolved = resolvedFolder(path) else {
-            FileHandle.standardError.write(Data("tidy: not a folder: \(path)\n".utf8))
+            FileHandle.standardError.write(Data("taydic: not a folder: \(path)\n".utf8))
             return 1
         }
         root = resolved == "/" ? "/System/Volumes/Data" : resolved
@@ -60,7 +60,7 @@ private func pickVolume(_ volumes: [Volume]) -> Volume? {
     while true {
         let (height, width) = Terminal.size()
         let w = max(20, width - 1)
-        var lines = [fit("tidy disk  pick a volume", w), ""]
+        var lines = [fit("taydic disk  pick a volume", w), ""]
         let nameWidth = min(24, volumes.map(\.name.count).max() ?? 10)
         for (i, volume) in volumes.enumerated() {
             let fraction = volume.total > 0 ? Double(volume.used) / Double(volume.total) : 0
@@ -106,7 +106,7 @@ private func scanWithProgress(_ path: String) -> (DirNode, Bool)? {
         let w = max(20, width - 1)
         let seconds = String(format: "%.1f", Date().timeIntervalSince(started))
         var lines = [
-            fit("tidy disk  scanning " + Paths.display(Paths.normalize(path)), w),
+            fit("taydic disk  scanning " + Paths.display(Paths.normalize(path)), w),
             "",
             fit("  \(grouped(progress.files)) files · \(grouped(progress.folders)) folders · \(seconds) s", w),
             fitKeepingEnd("  " + Paths.display(Paths.normalize(progress.current)), w),
@@ -267,8 +267,8 @@ private final class DiskBrowser {
             search = ""
             reload()
         case .file(let file):
-            message = file.isSymlink ? "That's a symlink; tidy doesn't follow links." : "That's a file, not a folder."
-        case .system: message = "The macOS system volume is sealed; tidy doesn't look inside it."
+            message = file.isSymlink ? "That's a symlink; taydic doesn't follow links." : "That's a file, not a folder."
+        case .system: message = "The macOS system volume is sealed; taydic doesn't look inside it."
         case .unscanned: message = "That's an estimate of space the scan couldn't see, not a folder. See ? for what's in it."
         case nil: break
         }
@@ -295,7 +295,7 @@ private final class DiskBrowser {
         print("")
         _ = Remover.run(RemovalPlan(paths: [path]), dryRun: dryRun, say: { print($0) }, ask: ask, choose: choose)
         print("")
-        print("Press Enter to go back to tidy disk. ", terminator: "")
+        print("Press Enter to go back to taydic disk. ", terminator: "")
         fflush(stdout)
         _ = readLine()
         Terminal.start()
@@ -343,7 +343,7 @@ private final class DiskBrowser {
         let (height, width) = Terminal.size()
         let w = max(20, width - 1)
         var lines = [
-            "tidy disk keys",
+            "taydic disk keys",
             "",
             "  ↑ ↓  PgUp PgDn  Home End    move",
             "  enter or →                  open folder",
@@ -358,8 +358,8 @@ private final class DiskBrowser {
             "APFS clones and snapshots share space, so totals can differ from what Finder shows.",
             "The boot disk is scanned through its data volume; the sealed macOS system volume is one line.",
             "\"not scanned\" is what the volume uses that the scan didn't see: other APFS volumes (VM, Preboot,",
-            "Recovery), snapshots (e.g. Time Machine) and folders tidy wasn't allowed to read. It's an estimate.",
-            "Symlinks show where they point (→); tidy counts the link itself, never what it points to.",
+            "Recovery), snapshots (e.g. Time Machine) and folders taydic wasn't allowed to read. It's an estimate.",
+            "Symlinks show where they point (→); taydic counts the link itself, never what it points to.",
             "",
             "Press any key.",
         ].map { fit($0, w) }
@@ -372,7 +372,7 @@ private final class DiskBrowser {
         let (height, width) = Terminal.size()
         let w = max(20, width - 1)
         var lines: [String] = []
-        lines.append(fit("tidy disk  " + Paths.display(Paths.normalize(current.path)) + (dryRun ? "   [dry-run]" : ""), w))
+        lines.append(fit("taydic disk  " + Paths.display(Paths.normalize(current.path)) + (dryRun ? "   [dry-run]" : ""), w))
         var summary = "\(Size.format(total)) · \(grouped(current.fileCount)) " + (current.fileCount == 1 ? "file" : "files")
         if let error = current.error { summary += " · \(error)" }
         if current === root { summary += " · sizes can differ from Finder, see ?" }

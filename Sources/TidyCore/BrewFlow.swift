@@ -42,7 +42,7 @@ public enum BrewFlow {
         var arguments = Brew.uninstallArguments(package, zap: false)
         if dryRun {
             say("--dry-run: would run: brew \(arguments.joined(separator: " "))")
-            if package.kind == .cask { say("(tidy would also ask whether to use --zap; the answer would default to No.)") }
+            if package.kind == .cask { say("(taydic would also ask whether to use --zap; the answer would default to No.)") }
         } else {
             guard ask("Uninstall \(package.name) (via brew)?") else {
                 say("Skipped \(package.name); its leftovers stay too.")
@@ -50,7 +50,7 @@ public enum BrewFlow {
             }
             if package.kind == .cask {
                 say("brew can also --zap: it then deletes the files the cask lists as its own (settings, caches)")
-                say("right away, NOT via the Trash. Without it, tidy offers those leftovers for the Trash below.")
+                say("right away, NOT via the Trash. Without it, taydic offers those leftovers for the Trash below.")
                 if ask("Use --zap?") { arguments = Brew.uninstallArguments(package, zap: true) }
             }
             say("Running: brew \(arguments.joined(separator: " "))")

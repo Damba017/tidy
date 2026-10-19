@@ -1,11 +1,11 @@
-"""Drive tidy's TUI in a pseudo-terminal and print what's on screen. Dev tool only.
+"""Drive taydic's TUI in a pseudo-terminal and print what's on screen. Dev tool only.
 
 usage: python3 -I scripts/drive_tui.py COLS ROWS STEP... -- COMMAND ARGS...
 steps: wait:SECONDS | snap | up down left right enter esc bs end home tab btab | text:STRING | key:CHAR
 
 `snap` prints the current screen; the cursor row (reverse video) is marked ">> ". At the end it
-reports the exit status, how long tidy took to exit, and whether the terminal was restored.
-Only ever drive tidy with --dry-run or on fixtures in /tmp/tidy-test, and answer "n" to questions.
+reports the exit status, how long taydic took to exit, and whether the terminal was restored.
+Only ever drive taydic with --dry-run or on fixtures in /tmp/tidy-test, and answer "n" to questions.
 """
 import fcntl, os, pty, re, select, struct, sys, termios, time
 

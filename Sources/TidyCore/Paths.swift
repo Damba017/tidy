@@ -2,7 +2,7 @@ import Foundation
 
 public enum Paths {
     public static let home = NSHomeDirectory()
-    public static let logFile = home + "/.local/state/tidy/log"
+    public static let logFile = home + "/.local/state/taydic/log"
 
     /// Absolute path with `~` expanded, trailing slashes dropped and symlinks in the
     /// parent folders resolved. The last component is never resolved: removing a symlink

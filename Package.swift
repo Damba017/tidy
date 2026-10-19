@@ -4,6 +4,8 @@ import PackageDescription
 let package = Package(
     name: "tidy",
     platforms: [.macOS(.v15)],
+    // The command is called taydic: macOS has its own /usr/bin/tidy (HTML Tidy).
+    products: [.executable(name: "taydic", targets: ["tidy"])],
     targets: [
         .target(name: "TidyCore"),
         .executableTarget(name: "tidy", dependencies: ["TidyCore"]),

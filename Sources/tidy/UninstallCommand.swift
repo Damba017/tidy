@@ -1,7 +1,7 @@
 import Foundation
 import TidyCore
 
-/// `tidy uninstall [name...]`: find what to remove, quit running apps, then the .app part (review +
+/// `taydic uninstall [name...]`: find what to remove, quit running apps, then the .app part (review +
 /// safety core) and after that the brew flow per package. Saying no in one part skips only that part.
 func runUninstall(names: [String], dryRun: Bool) -> Int32 {
     let interactive = isatty(STDIN_FILENO) == 1 && isatty(STDOUT_FILENO) == 1
@@ -14,7 +14,7 @@ func runUninstall(names: [String], dryRun: Bool) -> Int32 {
 
     if names.isEmpty {
         guard interactive else {
-            FileHandle.standardError.write(Data("tidy: give one or more names when not running in a terminal.\n".utf8))
+            FileHandle.standardError.write(Data("taydic: give one or more names when not running in a terminal.\n".utf8))
             return 2
         }
         print("Measuring \(candidates.count) apps and packages…")
@@ -68,7 +68,7 @@ func runUninstall(names: [String], dryRun: Bool) -> Int32 {
             print("--dry-run: would ask to quit \(list) first.")
         } else if ask("\(list) \(one ? "is" : "are") running. Quit \(one ? "it" : "them") now?") {
             for candidate in running where !RunningApps.quit(candidate.app!) {
-                print("\(candidate.name) didn't quit, so it's skipped. Quit it yourself and run tidy again.")
+                print("\(candidate.name) didn't quit, so it's skipped. Quit it yourself and run taydic again.")
                 targets.removeAll { $0 == candidate }
             }
         } else {
@@ -81,7 +81,7 @@ func runUninstall(names: [String], dryRun: Bool) -> Int32 {
     let apps = targets.filter { $0.package == nil }.compactMap(\.app)
     let viaBrew = targets.filter { $0.package != nil }
     if !apps.isEmpty {
-        // Brew packages aren't in the review list (brew removes them, not tidy), so say they come next.
+        // Brew packages aren't in the review list (brew removes them, not taydic), so say they come next.
         let note = viaBrew.isEmpty ? nil
             : "After this list: " + viaBrew.map { "\($0.name) (\($0.source.rawValue))" }.joined(separator: ", ")
                 + ", via brew with " + (viaBrew.count == 1 ? "its" : "their") + " own questions."
@@ -118,10 +118,10 @@ private func uninstallApps(_ apps: [App], dryRun: Bool, interactive: Bool, note:
     }
     if !privacyProtected.isEmpty {
         print("")
-        print("Not in the list: macOS won't let tidy touch these without Full Disk Access:")
+        print("Not in the list: macOS won't let taydic touch these without Full Disk Access:")
         privacyProtected.forEach { print("  " + Paths.display($0)) }
         print("To include them: System Settings → Privacy & Security → Full Disk Access → add your terminal app,")
-        print("then run tidy again.")
+        print("then run taydic again.")
     }
     guard !selected.isEmpty else {
         print("Nothing selected; no apps were changed.")
@@ -139,7 +139,7 @@ private func uninstallApps(_ apps: [App], dryRun: Bool, interactive: Bool, note:
 
 /// The app bundle plus everything it left behind, as one group of the review list.
 /// Protected or missing paths never make it into the list; the ones macOS privacy protection
-/// keeps tidy out of are returned separately so the user hears about them.
+/// keeps taydic out of are returned separately so the user hears about them.
 private func group(for app: App) -> (group: ReviewList.Group, privacyProtected: [String]) {
     let candidates = [(app.path, "app", true)] + Leftovers.find(for: app).map { ($0.path, $0.match.label, $0.checkedByDefault) }
     var items: [ReviewList.Item] = []
@@ -183,7 +183,7 @@ private func pick(_ candidates: [Candidate], sizes: [String: Int64], dryRun: Boo
         let w = max(20, width - 1)
         let shown = picker.visible
         var lines = [
-            fit("tidy uninstall  pick what to remove" + (dryRun ? "   [dry-run]" : ""), w),
+            fit("taydic uninstall  pick what to remove" + (dryRun ? "   [dry-run]" : ""), w),
             fit(picker.filter.isEmpty ? "type to filter" : "filter: \(picker.filter)▏", w),
             String(repeating: "─", count: w),
         ]

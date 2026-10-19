@@ -10,13 +10,15 @@ Built for one user (Damba) on one machine: MacBook Air M4, latest macOS. **macOS
 
 Philosophy: KISS. Powerful, not pretty. Every feature must earn its place.
 
+**Naming:** the command you run is **`taydic`** ("taydi cleaner"; renamed 2026-10-19 because macOS ships its own `/usr/bin/tidy`, HTML Tidy). The project is still called tidy: this file, the folder `~/tidy`, the `TidyCore` module, the `tidy` executable target and the GitHub repo.
+
 ---
 
 ## Hard rules (never break these)
 
 1. **Never install anything on this Mac without asking first and getting a clear "yes".** That includes Homebrew formulae/casks, `pip`, `npm`, `gem`, `curl | sh`, `xcode-select --install`, Swift toolchains, Swift packages, and copying files into `~/.local/bin` or any other location outside this project folder. Read-only checks (`swift --version`, `which brew`, `ls`) are fine.
 2. **Never run `sudo`** — not to build, test, fix permissions, or anything else. The *tool* may use sudo at runtime (see "Root-owned files"), but you, the agent, never execute that code path for real.
-3. **Never delete or move real user files during development.** No running `tidy uninstall`, `tidy junk` or a delete in `tidy disk` against real apps or real folders unless it's with `--dry-run`. Test destructive code only on fixtures you create under `/tmp/tidy-test/` (or a fixtures folder in the repo).
+3. **Never delete or move real user files during development.** No running `taydic uninstall`, `taydic junk` or a delete in `taydic disk` against real apps or real folders unless it's with `--dry-run`. Test destructive code only on fixtures you create under `/tmp/tidy-test/` (or a fixtures folder in the repo).
 4. **Never run `brew uninstall`, `brew install` or `brew` commands that change state.** Read-only brew queries (`brew list`, `brew info --json`, `brew --prefix`) are fine.
 5. **Never change system settings** (Full Disk Access, privacy permissions, defaults, launchctl). If something needs a permission, tell Damba how to grant it himself.
 6. **Zero external dependencies.** Only the Swift standard library and Apple system frameworks (Foundation, Darwin, and AppKit only if truly needed). No SwiftPM packages. If you genuinely believe one is necessary, stop and ask.
@@ -30,7 +32,7 @@ Philosophy: KISS. Powerful, not pretty. Every feature must earn its place.
 - Everything in the project is **English**: code, comments, commit messages, tool output, menus, this file.
 - **Whenever you show him a command, explain what it does, why, and what every flag means.**
 - Before starting a new phase (see Roadmap), say in a few lines what you're going to build. After finishing it, give him one or two `--dry-run` commands to try himself.
-- Give **complete, copy-pasteable commands** (`.build/release/tidy junk --dry-run`, not `junk --dry-run`), each in its own block, with a before/after check (`stat -f '%Sm' ~/.Trash`, `ls ~/.local/state/tidy/log`) when something could change.
+- Give **complete, copy-pasteable commands** (`.build/release/taydic junk --dry-run`, not `junk --dry-run`), each in its own block, with a before/after check (`stat -f '%Sm' ~/.Trash`, `ls ~/.local/state/taydic/log`) when something could change.
 - After a phase or a fix he has tested: offer to push (he says yes each time; see rule 7).
 - Be honest about what you did *not* test, and about anything that went wrong.
 - Say it up front when a command you run deletes anything (`rm -rf`, even on your own fixtures in `/tmp`); better, don't put deletes in commands at all.
@@ -43,11 +45,11 @@ Philosophy: KISS. Powerful, not pretty. Every feature must earn its place.
 - **Build system:** Swift Package Manager, `Package.swift` with **no dependencies**.
 - **Targets:**
   - `TidyCore` (library): all logic — scanning, matching, trashing, brew, volumes. Testable without a terminal.
-  - `tidy` (executable): argument parsing, TUI, prompts. Thin layer over `TidyCore`.
+  - `tidy` (executable target, built as the `taydic` product in `Package.swift`): argument parsing, TUI, prompts. Thin layer over `TidyCore`.
   - Tests (`TidyCoreTests`): **Swift Testing** (`import Testing`, `@Test`, `#expect`) works with the Command Line Tools alone; XCTest is not available. The CLT keep the `TestingMacros` plugin in `usr/lib/swift/host/plugins/testing/`, which SwiftPM doesn't search, so `Package.swift` passes `-plugin-path` on the test target. Plain `swift test` just works.
-- **Build:** `swift build -c release` → `.build/release/tidy`.
-- **Install:** copy to `~/.local/bin/tidy` — **only after Damba says yes**, every time: `swift build -c release`, then `mkdir -p ~/.local/bin && cp .build/release/tidy ~/.local/bin/tidy`, then check with `cmp` and `~/.local/bin/tidy --version`.
-  - macOS ships an unrelated `/usr/bin/tidy` (HTML Tidy), and `~/.local/bin` isn't in his PATH (checked 2026-10-18: there's no `~/.zshrc`, and `~/.zprofile`/`~/.zshenv` don't add it), so `which tidy` gives HTML Tidy. That's why the command is being renamed to `taydic`; at install time he adds `export PATH="$HOME/.local/bin:$PATH"` to `~/.zprofile` himself. Never `/usr/bin`: it's on the sealed system volume (SIP).
+- **Build:** `swift build -c release` → `.build/release/taydic`.
+- **Install:** copy to `~/.local/bin/taydic` — **only after Damba says yes**, every time: `swift build -c release`, then `mkdir -p ~/.local/bin && cp .build/release/taydic ~/.local/bin/taydic`, then check with `cmp` and `~/.local/bin/taydic --version`.
+  - macOS ships an unrelated `/usr/bin/tidy` (HTML Tidy), and `~/.local/bin` isn't in his PATH (checked 2026-10-18: there's no `~/.zshrc`, and `~/.zprofile`/`~/.zshenv` don't add it), so `which tidy` gives HTML Tidy. That's why the command is called `taydic`; at install time he adds `export PATH="$HOME/.local/bin:$PATH"` to `~/.zprofile` himself, and `which taydic` must say `~/.local/bin/taydic`. Never `/usr/bin`: it's on the sealed system volume (SIP). The old `~/.local/bin/tidy` (0.1.0) is his to remove.
 
 Useful system APIs (so you don't reach for packages):
 - Fast directory scans: `getattrlistbulk` (much faster than `FileManager.enumerator` on big trees); fall back to `fts`/`opendir` if needed.
@@ -62,12 +64,12 @@ Useful system APIs (so you don't reach for packages):
 ## Commands
 
 ```
-tidy                       Main menu (TUI)
-tidy uninstall [name…]     Uninstall one or more apps/brew packages + leftovers
-tidy disk [path]           Disk-usage browser (TUI)
-tidy junk [category]       Find junk: orphans | caches | large | dev
-tidy --help / -h
-tidy --version
+taydic                       Main menu (TUI)
+taydic uninstall [name…]     Uninstall one or more apps/brew packages + leftovers
+taydic disk [path]           Disk-usage browser (TUI)
+taydic junk [category]       Find junk: orphans | caches | large | dev
+taydic --help / -h
+taydic --version
 
 Global flags:
   --dry-run    Show exactly what would happen. Never touches anything.
@@ -78,21 +80,21 @@ Junk flags:
   --older-than DAYS   large: also files ≥ 100 MB unused this long (default 180)
 
 Dev aid (not in --help):
-  tidy _plan PATH…    Show the removal plan for these paths. Always a dry run, never asks.
+  taydic _plan PATH…  Show the removal plan for these paths. Always a dry run, never asks.
 ```
 
-### `tidy` (no arguments) → main menu
+### `taydic` (no arguments) → main menu
 ```
-tidy
+taydic
   1  Uninstall an app
   2  Disk overview
   3  Find junk
   q  Quit
 ```
-Number keys or arrows + Enter. Each option drops into the same flow as its subcommand (`--dry-run` and the junk flags pass through). Afterwards: "Press Enter for the menu, or q and Enter to quit", so the flow's output stays readable and he can do several things in one go. When stdout/stdin isn't a terminal, `tidy` prints the help instead.
+Number keys or arrows + Enter. Each option drops into the same flow as its subcommand (`--dry-run` and the junk flags pass through). Afterwards: "Press Enter for the menu, or q and Enter to quit", so the flow's output stays readable and he can do several things in one go. When stdout/stdin isn't a terminal, `taydic` prints the help instead.
 
-### `tidy uninstall [name…]`
-Accepts **multiple names** (`tidy uninstall discord firefox fastfetch cava`). With no name, the app list is **multi-select** (space to toggle) with **type-to-filter**: typing narrows the list live (case-insensitive substring on app/package name), backspace widens it again, and selections persist while the filter changes. Each row shows name, size and source; footer shows `N of M · K selected`. Multiple targets are handled as one batch:
+### `taydic uninstall [name…]`
+Accepts **multiple names** (`taydic uninstall discord firefox fastfetch cava`). With no name, the app list is **multi-select** (space to toggle) with **type-to-filter**: typing narrows the list live (case-insensitive substring on app/package name), backspace widens it again, and selections persist while the filter changes. Each row shows name, size and source; footer shows `N of M · K selected`. Multiple targets are handled as one batch:
 - First a "Found N" summary: name, full path, source per target. Ambiguous names get a pick-one prompt each; names with no match are reported and skipped.
 - One combined "quit running apps?" prompt for all running targets.
 - One combined review list, **grouped per app** (collapsible, with per-app totals; groups needing sudo are labelled). Each group header has its own checkbox: toggling it selects/deselects all items in that group; it shows `[x]` when all are selected, `[ ]` when none, `[~]` when some. Individual items stay toggleable. Then **one** `y/N` for everything that can go to the Trash without root. Brew packages aren't in this list (brew removes them, not tidy); the review screen says which come after it ("After this list: cava (Homebrew formula), via brew with its own questions.").
@@ -127,7 +129,7 @@ For each name:
    - Leftovers macOS privacy protection keeps tidy out of (EPERM, not root-owned) are not offered; they're listed afterwards with the Full Disk Access hint. sudo doesn't help there.
 6. **For brew packages** the flow is (this is the real output):
    ```
-   $ tidy uninstall fastfetch
+   $ taydic uninstall fastfetch
    fastfetch is installed via Homebrew (formula).
    Uninstall fastfetch (via brew)? (y/N) y
    Running: brew uninstall fastfetch
@@ -144,7 +146,7 @@ For each name:
    - Said no, or `brew uninstall` failed → its leftovers are left alone too. `--dry-run` never runs brew; it prints "would run: brew uninstall …" and the leftover plan.
    - brew queries run with `HOMEBREW_NO_AUTO_UPDATE=1`. Even read-only queries let brew refresh its own cache in `~/Library/Caches/Homebrew/api`; that's brew's housekeeping, not an install.
 
-### `tidy disk [path]`
+### `taydic disk [path]`
 - No path → list mounted volumes (Macintosh HD + any externals) with used/free, let him pick.
 - **Boot volume:** scan the data volume (`/System/Volumes/Data`), not `/` — the sealed system volume and firmlinks otherwise double-count. Show the system volume's size as a single line item.
 - Don't cross into other filesystems (compare `st_dev`), don't follow symlinks, count hard links once (by inode), use **allocated size** (`st_blocks * 512`), not logical size. Note in the UI that APFS clones/snapshots can make totals differ from Finder.
@@ -155,7 +157,7 @@ For each name:
 - Symlinks show their target (`Safari.app → ../System/Cryptexes/…`); the link itself is counted, never followed.
 - A whole-volume scan gets a **"not scanned"** line: volume used − (scan + system volume), i.e. other APFS volumes (VM, Preboot, Recovery), snapshots and unreadable folders, so the top total matches "used".
 
-### `tidy junk [category]`
+### `taydic junk [category]`
 Categories (no argument = all, grouped with totals per category):
 - **orphans** — folders/plists in the `~/Library` locations whose bundle ID / name doesn't match any installed app. Always unchecked by default; mark confidence.
   - Only **bundle-ID-shaped** names count (`com.foo.bar`, `TEAMID.com.foo.bar`, `group.com.foo.bar`, ≥ 3 parts): plain names in `~/Library` are mostly macOS's own (`AddressBook`, `Knowledge`, `familycircled.plist`, …).
@@ -191,12 +193,12 @@ The uninstall app picker filters by just typing (no `/`), space selects, Enter c
 - **Denylist** — never offer to delete, regardless of what matching says:
   `/System`, `/usr` (except `/usr/local`), `/bin`, `/sbin`, `/private/var` (all of it; the receipts in `/private/var/db` are only read), `/Library/Apple`, `/Library/Preferences/SystemConfiguration` (network settings), `~/Library/Keychains`, `~/Library/Mail`, `~/Library/Messages`, `~/Library/Mobile Documents` (iCloud Drive), `~/Pictures/Photos Library.photoslibrary`, anything `com.apple.*` in orphan detection, the home folder itself, and any mount point.
   Also (implemented in `Denylist.swift`):
-  - **Protected trees** (never removed, nor anything inside): `/dev`, `/private/etc`, `/private/var` (temp files of running apps in `folders`, root's home, logs, …), `/Library/Keychains`, `/Library/Preferences/SystemConfiguration`, `~/.ssh`, `~/.gnupg`, `~/.Trash` (already in the Trash), `~/.local/state/tidy` (tidy's own log).
+  - **Protected trees** (never removed, nor anything inside): `/dev`, `/private/etc`, `/private/var` (temp files of running apps in `folders`, root's home, logs, …), `/Library/Keychains`, `/Library/Preferences/SystemConfiguration`, `~/.ssh`, `~/.gnupg`, `~/.Trash` (already in the Trash), `~/.local/state/taydic` (its own log), `~/.local/state/tidy` (the log from before the rename).
   - **Parents of protected trees**, e.g. `~/Library` (contains Keychains), `~/Pictures` (contains the Photos library), `/Users`, `/`.
   - **Standard folders themselves** (their contents may go, the folder may not): `/Applications`, `/Applications/Utilities`, `~/Applications`, `/Library`, `/Users/Shared`, `/Volumes`, `/opt`, `/opt/homebrew`, `/usr/local`, `/private`, `/private/tmp`, `/etc`, `/tmp`, `/var`; in `~`: `Desktop`, `Documents`, `Downloads`, `Movies`, `Music`, `Pictures`, `Public`, `Library`, `.config`, `.cache`, `.local` (+ `bin`, `share`, `state`); the `~/Library` and `/Library` scan locations listed under `uninstall` (`Caches`, `Application Support`, `Preferences`, `LaunchAgents`, …).
   - **Hidden items at the root of a volume** (`.Spotlight-V100`, `.fseventsd`, `.Trashes`, …) and anything with the SIP `restricted` flag.
   - Paths are compared only after resolving symlinks on both sides (`/tmp` → `/private/tmp`), and `/System/Volumes/Data/…` is mapped to its normal path first — but only inside a firmlinked folder (`/Users`, `/Applications`, `/usr/local`, …: same device and inode on both sides). What exists on the data volume only (`macOS Install Data`, the autofs `home`) keeps its full path, so it falls under `/System` and is protected. The denylist is checked when the plan is built **and** again right before every move.
-  - Case never matters: APFS ignores it (`~/applications` *is* `~/Applications`), so the denylist compares without case, and `Paths.normalize` takes each path's last name as it's spelled on disk (`getattrlist`, without following a symlink). Found in the phase 8 review: before that, `tidy uninstall ~/applications` would have offered his whole `~/Applications`.
+  - Case never matters: APFS ignores it (`~/applications` *is* `~/Applications`), so the denylist compares without case, and `Paths.normalize` takes each path's last name as it's spelled on disk (`getattrlist`, without following a symlink). Found in the phase 8 review: before that, `taydic uninstall ~/applications` would have offered his whole `~/Applications`.
 - **Root-owned files** (App Store apps, `/Library/LaunchDaemons`, `PrivilegedHelperTools`, etc.):
   - The tool *can* remove them, but every time it needs root it says so explicitly and asks: `These 3 items need administrator rights (sudo). Continue? (y/N)`.
   - Then one `sudo` prompt for the batch, moving items into `~/.Trash/` with a collision-safe name (`sudo /bin/mv`). Mention that emptying the Trash will ask for his password later.
@@ -205,7 +207,7 @@ The uninstall app picker filters by just typing (no `/`), space selects, Enter c
   - SIP-protected paths: report and skip, don't try.
   - For LaunchDaemons/Agents: `launchctl bootout` the job before removing the plist (also behind the same confirmation). Done in the safety core: agents `launchctl bootout gui/<uid> <plist>`, daemons `sudo -n /bin/launchctl bootout system <plist>`; never for a path the denylist refuses; the plan marks them "(stops its launchd job first)".
 - **Full Disk Access:** some `~/Library/Containers` etc. are TCC-protected. Detect this once (EPERM on a known protected path) and print how to grant it: *System Settings → Privacy & Security → Full Disk Access → add your terminal app*. Continue with what's readable.
-- **Log:** append every removal (timestamp, original path, size, where it went in the Trash, whether sudo was used) to `~/.local/state/tidy/log`. Items moved with `sudo mv` don't get Finder's "Put Back", so the log is how to find their origin. Format: one tab-separated line per item, `time  moved|failed  size  original  destination-or-error  sudo=yes|no`; a tab, newline or backslash in a path is written as `\t`, `\n`, `\\`. If the Trash already holds that name, macOS adds a timestamp (`com.spotify.installer 20-27-47-232.installer`); the log has the exact name.
+- **Log:** append every removal (timestamp, original path, size, where it went in the Trash, whether sudo was used) to `~/.local/state/taydic/log` (until 2026-10-19 it was `~/.local/state/tidy/log`; that old log stays where it is). Items moved with `sudo mv` don't get Finder's "Put Back", so the log is how to find their origin. Format: one tab-separated line per item, `time  moved|failed  size  original  destination-or-error  sudo=yes|no`; a tab, newline or backslash in a path is written as `\t`, `\n`, `\\`. If the Trash already holds that name, macOS adds a timestamp (`com.spotify.installer 20-27-47-232.installer`); the log has the exact name.
 
 ---
 
@@ -228,9 +230,9 @@ The uninstall app picker filters by just typing (no `/`), space selects, Enter c
 - `swift test` runs everything (Swift Testing). Every test works on fixtures in `/tmp/tidy-test/<uuid>` (`Fixture` in `Tests/TidyCoreTests/Fixtures.swift`) with a fake home.
 - **No test may ever reach the real Trash, sudo, launchctl or brew.** The internal overloads of `Remover.run`, `Trash.move` and `BrewFlow.run` have **no defaults** on purpose: tests pass `fx.trash` (a fake Trash inside the fixture, which also refuses anything outside `/tmp/tidy-test`), `Transcript` (fake `ask`/`choose`/`sudo`/`launchctl` that record and run nothing) and `FakeBrew`. The one test that uses the real Trash only runs with `TIDY_TRASH_TESTS=1` — ask Damba first. (On 2026-10-18 a denylist bug, `/tmp` vs `/private/tmp`, made refusal tests move empty fixture folders into his real Trash; that's why.)
 - To check the real Trash wasn't touched: `stat -f '%Sm' ~/.Trash` before and after (listing `~/.Trash` is blocked by privacy protection).
-- TUI checks: `python3 -I scripts/drive_tui.py COLS ROWS STEPS… -- .build/debug/tidy …` runs tidy in a pseudo-terminal and prints screens (cursor row marked `>>`). Only with `--dry-run` or on fixtures, answering `n`.
+- TUI checks: `python3 -I scripts/drive_tui.py COLS ROWS STEPS… -- .build/debug/taydic …` runs it in a pseudo-terminal and prints screens (cursor row marked `>>`). Only with `--dry-run` or on fixtures, answering `n`.
 - Don't scan Damba's whole home or disk from the agent (`junk large/dev/caches`, `disk` on `~`): macOS then shows privacy pop-ups for the Claude app. Give him the commands to run in his own Terminal instead. Reading names in `~/Library` and Spotlight (`junk orphans`) is fine.
-- `tidy _plan PATH…` shows what tidy would do with any path, always as a dry run.
+- `taydic _plan PATH…` shows what tidy would do with any path, always as a dry run.
 
 ## Code conventions
 
@@ -267,9 +269,11 @@ The uninstall app picker filters by just typing (no `/`), space selects, Enter c
      10. `Trash.freeDestination` only takes a name `lstat` says isn't there; otherwise the sudo batch stops before anything is stopped or moved. A skipped `mv -n` says "was taken".
      11. The log escapes tab, newline and backslash; simulator UDIDs must be UUIDs before they go into a path.
      12. Root-owned items on another volume are still copied into `~/.Trash`: fine for Damba, it's rare.
-   - Next: rename the command to `taydic` (decided 2026-10-19: the command, help and menus, and the log in `~/.local/state/taydic`; the old log in `~/.local/state/tidy` stays where it is and stays protected; the module `TidyCore`, the folder `~/tidy` and the GitHub repo keep their names). Then the final thorough review of all code in a new session (Damba's choice: fresh eyes), then install.
-   - **Commits (Damba's rule for this phase):** nothing is committed until he has tested it. Fixes 1–6: one commit (done); 7–12: the next; then the rename; then the review's fixes.
+   - Fixes 7–12 committed and pushed as `06c87b9` after Damba's test.
+   - Renamed the command to `taydic` (2026-10-19, see "Naming" at the top): the product in `Package.swift`, every text the user sees, and the log in `~/.local/state/taydic`. The old log in `~/.local/state/tidy` stays where it is, protected.
+   - Next: the final thorough review of all code in a new session (Damba's choice: fresh eyes), then install as `~/.local/bin/taydic` (ask first) with the PATH line he adds himself.
+   - **Commits (Damba's rule for this phase):** nothing is committed until he has tested it. Fixes 1–6: one commit (done); 7–12: the next (done); then the rename; then the review's fixes.
 
-**Where things stand (2026-10-19):** phases 0–7 are done and tested by Damba with `--dry-run`; version 0.1.0 (commit `6b99f8c`) is installed in `~/.local/bin` (without the phase 8 fixes, and not in his PATH). Phase 8 is in progress, see above. Real removals have been tried once, on purpose and small (`junk orphans` and `junk caches`, user-owned items only): Trash, log and "Put Back" work. Never run for real yet: the sudo path, `launchctl bootout`, `brew uninstall`, quitting a running app.
+**Where things stand (2026-10-19):** phases 0–7 are done and tested by Damba with `--dry-run`; version 0.1.0 (commit `6b99f8c`) is installed as `~/.local/bin/tidy` (the old name, without the phase 8 fixes, and not in his PATH). Phase 8 is in progress, see above. Real removals have been tried once, on purpose and small (`junk orphans` and `junk caches`, user-owned items only): Trash, log and "Put Back" work. Never run for real yet: the sudo path, `launchctl bootout`, `brew uninstall`, quitting a running app.
 
 Stop and ask whenever a decision isn't covered here instead of guessing.

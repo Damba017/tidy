@@ -1,7 +1,7 @@
 import Foundation
 import TidyCore
 
-/// `tidy junk [category]`: find junk, review it grouped per category, then the safety core.
+/// `taydic junk [category]`: find junk, review it grouped per category, then the safety core.
 /// Orphans are asked about separately (all / one by one / none).
 func runJunk(category: JunkCategory?, options: JunkOptions, dryRun: Bool) -> Int32 {
     let interactive = isatty(STDIN_FILENO) == 1 && isatty(STDOUT_FILENO) == 1
@@ -63,10 +63,10 @@ func runJunk(category: JunkCategory?, options: JunkOptions, dryRun: Bool) -> Int
     }
     if !privacyProtected.isEmpty {
         print("")
-        print("Not in the list: macOS won't let tidy touch these without Full Disk Access:")
+        print("Not in the list: macOS won't let taydic touch these without Full Disk Access:")
         privacyProtected.forEach { print("  " + Paths.display($0)) }
         print("To include them: System Settings → Privacy & Security → Full Disk Access → add your terminal app,")
-        print("then run tidy again.")
+        print("then run taydic again.")
     }
     guard !selected.isEmpty else {
         print("Nothing selected; nothing was changed.")
