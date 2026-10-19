@@ -87,11 +87,23 @@ public struct RemovalPlan: Sendable {
     }
 
     /// First question: sure items that can go to the Trash without root.
-    var sure: [Item] { items.filter { $0.status == .trash && !$0.isDoubtful } }
+    var sure: [Item] { Self.byFolder(items.filter { $0.status == .trash && !$0.isDoubtful }) }
     /// Second question: the doubtful items, with or without root.
-    var doubtful: [Item] { items.filter { $0.isDoubtful && ($0.status == .trash || $0.status == .sudo) } }
+    var doubtful: [Item] { Self.byFolder(items.filter { $0.isDoubtful && ($0.status == .trash || $0.status == .sudo) }) }
     /// Third question: sure items that need root.
-    var root: [Item] { items.filter { $0.status == .sudo && !$0.isDoubtful } }
+    var root: [Item] { Self.byFolder(items.filter { $0.status == .sudo && !$0.isDoubtful }) }
+
+    /// `items` with the ones in the same folder together, the order the plan shows them in (and moves them in).
+    static func byFolder(_ items: [Item]) -> [Item] {
+        var folders: [String] = []
+        var inFolder: [String: [Item]] = [:]
+        for item in items {
+            let folder = Paths.parent(item.path)
+            if inFolder[folder] == nil { folders.append(folder) }
+            inFolder[folder, default: []].append(item)
+        }
+        return folders.flatMap { inFolder[$0] ?? [] }
+    }
 
     /// "fuzzy match" / "2 fuzzy matches"
     func doubtfulCount(_ n: Int) -> String {
@@ -99,10 +111,11 @@ public struct RemovalPlan: Sendable {
         return n == 1 ? "1 \(doubt.one)" : "\(n) \(doubt.many)"
     }
 
-    /// Every item with its full location, grouped by what will happen to it, in the order of the questions.
+    /// Every item with its full location (its folder, then its name), grouped by what will happen to it,
+    /// in the order of the questions.
     public func render() -> [String] {
         var lines: [String] = []
-        let blocked = items.filter { if case .blocked = $0.status { true } else { false } }
+        let blocked = Self.byFolder(items.filter { if case .blocked = $0.status { true } else { false } })
         let doubt = doubt ?? .fuzzy([])
         let groups = [
             ("Move to the Trash", sure),
@@ -111,30 +124,35 @@ public struct RemovalPlan: Sendable {
         ]
         for (title, group) in groups where !group.isEmpty {
             lines.append("\(title): \(Self.describe(group))")
-            lines += group.map { item in
+            lines += Self.listed(group) { item, name in
                 var note = Launchctl.domain(of: item.path) == nil ? "" : "  (stops its launchd job first)"
                 if item.isDoubtful && item.status == .sudo { note += "  (needs sudo)" }
                 if let extra = item.note { note += "  (\(extra))" }
-                return "  " + Self.pad(Size.format(item.size)) + "  " + Paths.display(item.path) + note
+                return "    " + Self.pad(Size.format(item.size)) + "  " + name + note
             }
             lines.append("")
         }
         if !blocked.isEmpty {
             lines.append("Protected, will not be touched: \(Self.count(blocked.count))")
-            for item in blocked {
-                if case .blocked(let reason) = item.status {
-                    lines.append("  " + Self.pad("") + "  " + Paths.display(item.path) + "  (\(reason))")
-                }
+            lines += Self.listed(blocked) { item, name in
+                guard case .blocked(let reason) = item.status else { return "" }
+                return "    " + Self.pad("") + "  " + name + "  (\(reason))"
             }
             lines.append("")
         }
-        let missing = items(.missing)
+        let missing = Self.byFolder(items(.missing))
         if !missing.isEmpty {
             lines.append("Not found, skipped: \(Self.count(missing.count))")
-            lines += missing.map { "  " + Self.pad("") + "  " + Paths.display($0.path) }
+            lines += Self.listed(missing) { _, name in "    " + Self.pad("") + "  " + name }
             lines.append("")
         }
         return lines
+    }
+
+    /// `items` per folder (see `Output.grouped`), one `line(item, name)` each.
+    static func listed(_ items: [Item], _ line: (Item, String) -> String) -> [String] {
+        let byPath = Dictionary(items.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
+        return Output.grouped(items.map(\.path)) { path, name in byPath[path].map { line($0, name) } ?? "" }
     }
 
     static func classify(_ path: String, home: String) -> Item {

@@ -132,7 +132,7 @@ private func flow(_ candidate: Candidate, in fx: Fixture, _ t: Transcript, _ bre
     #expect(brew.runs.isEmpty)
     #expect(t.questions.isEmpty)
     #expect(t.lines.contains("--dry-run: would run: brew uninstall tidytesttool"))
-    #expect(t.lines.contains { $0.contains(config) || $0.contains("/.config/tidytesttool") })
+    #expect(t.lines.contains(Output.folderLine(fx.home + "/.config")) && t.lines.contains { $0.hasSuffix("  tidytesttool") })
     #expect(Paths.exists(config))
 }
 
@@ -147,7 +147,7 @@ private func flow(_ candidate: Candidate, in fx: Fixture, _ t: Transcript, _ bre
     _ = flow(formula("tidytesttool"), in: fx, t, FakeBrew(), dryRun: true)
 
     #expect(t.lines.contains("Not searched, so leftovers in there can't be found:"))
-    #expect(t.lines.contains("  \(cookies)  (Permission denied)"))
+    #expect(t.lines.contains("  \(cookies)/  (Permission denied)"))
 }
 
 @Test func sayingNoSkipsBrewAndTheLeftovers() throws {

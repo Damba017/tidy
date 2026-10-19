@@ -61,21 +61,15 @@ func runJunk(category: JunkCategory?, options: JunkOptions, dryRun: Bool) -> Int
         if let note { print(note) }
         selected = list.selectedPaths
     }
-    if !privacyProtected.isEmpty {
-        print("")
-        print("Not in the list: macOS won't let taydic touch these without Full Disk Access:")
-        privacyProtected.forEach { print("  " + Paths.display($0)) }
-        print("To include them: System Settings → Privacy & Security → Full Disk Access → add your terminal app,")
-        print("then run taydic again.")
-    }
+    showPrivacyNotes(protected: privacyProtected)
     guard !selected.isEmpty else {
         print("Nothing selected; nothing was changed.")
         return 0
     }
 
-    print("")
+    show("")
     let plan = RemovalPlan(paths: selected, doubtful: .orphans(notes.filter { selected.contains($0.key) }))
-    let result = Remover.run(plan, dryRun: dryRun, say: { print($0) }, ask: ask, choose: choose)
+    let result = Remover.run(plan, dryRun: dryRun, say: show, ask: ask, choose: choose)
     return result.failed > 0 ? 1 : 0
 }
 

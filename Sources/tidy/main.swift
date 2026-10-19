@@ -83,7 +83,7 @@ case "junk":
 case "_plan":
     // Dev aid, not in --help: shows what taydic would do with these paths. Always a dry run.
     if rest.isEmpty { fail("'_plan' needs one or more paths.") }
-    _ = Remover.run(RemovalPlan(paths: rest), dryRun: true, say: { print($0) }, ask: { _ in false }, choose: { _ in .none })
+    _ = Remover.run(RemovalPlan(paths: rest), dryRun: true, say: show, ask: { _ in false }, choose: { _ in .none })
     exit(0)
 default:
     fail("unknown command '\(command!)'. See 'taydic --help'.")

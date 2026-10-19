@@ -189,6 +189,7 @@ The uninstall app picker filters by just typing (no `/`), space selects, Enter c
 ## Safety design (built into the tool)
 
 - **One removal path:** everything that removes goes through `Remover.run` (the safety core). It first prints the whole plan — every path with size, grouped as *Move to the Trash* / *asked separately* (fuzzy matches, orphans) / *Needs sudo* / *Protected* / *Not found* — and only then asks, in this order: one `y/N` for the sure items → `y = all · o = one by one · N = none` for the doubtful ones → one `y/N` for sudo. `--dry-run` stops right after the plan.
+  - Layout (Damba's choice, 2026-10-19): within each block, paths per folder: the folder once (`  ~/Library/Caches/`), the names under it, items moved in that same order. Results (`moved` / `FAILED` + a short reason; macOS's own long message goes to the log) come right under the answer, also per folder; `→ ~/.Trash/…` only when the Trash gave another name. A list shown again before a question gets a blank line before that question; no blank line between a question and its results. Ends with `Done: N items (size) moved to the Trash[, N failed (see above)].` and the log path. The sudo question names the item when there's one.
 - **Everything goes to the Trash**, never `unlink`/`removeItem`. The only exceptions are `brew uninstall` itself (brew owns that) — always behind a `y/N`.
 - **Default answer is always No.** `(y/N)`, Enter = no. Only `y`/`yes` counts. When stdin isn't a terminal every question is answered No, so a yes can't be piped in. Only what's typed after a question appears counts: typed-ahead input is thrown away first (`tcflush`), so a `y⏎` typed while the plan was still loading never answers it.
 - **Privacy protection is not root:** `access()` failing with `EACCES` (permission bits, e.g. root-owned App Store apps) → sudo batch. `EPERM` (macOS privacy protection, or a lock flag) → *Protected*, with the Full Disk Access hint; sudo from a terminal can't get past it either. `EROFS` (a read-only volume, e.g. a mounted .dmg) → *Protected* ("read-only volume"), never a password prompt for nothing.
@@ -223,11 +224,12 @@ The uninstall app picker filters by just typing (no `/`), space selects, Enter c
 - `Denylist.swift` — what may never be removed. `Paths.swift` — normalize (symlinks, `/System/Volumes/Data`), display with `~`.
 - `Trash.swift` (move to Trash, refuses denylisted paths itself), `Sudo.swift`, `Spawn.swift` (runs sudo and `brew uninstall` in the terminal, in taydic's process group), `Launchctl.swift`, `Log.swift`.
 - `Size.swift` — allocated size (`fts`), formatting, parsing ("500MB"). `Scanner.swift` — `getattrlistbulk` tree scan for `disk`. `Volumes.swift`.
+- `Output.swift` — lists of paths per folder, and the colours (which lines get which).
 - `AppFinder.swift` (.app bundles), `Brew.swift` (read-only queries + running `brew uninstall`), `Candidates.swift` (apps + brew in one list), `Leftovers.swift` (bundle ID / name / fuzzy / pkg receipts / dotfiles), `BrewFlow.swift`, `RunningApps.swift` (AppKit, only for quitting/bundle IDs).
 - `Junk.swift` — caches, large & old + dev (one `fts` walk through `~`), orphans.
 - `ReviewList.swift` — the review-list model (groups, checks, search, Tab jumps) and the uninstall picker model.
 
-`Sources/tidy/` (terminal): `main.swift` (arguments), `Prompt.swift` (`ask` y/N, `choose` y/o/N), `MenuCommand.swift`, `DiskCommand.swift`, `UninstallCommand.swift`, `JunkCommand.swift`, `TUI/Terminal.swift` (raw mode, keys, restore on exit/signals), `TUI/ReviewView.swift`, `TUI/Text.swift`.
+`Sources/tidy/` (terminal): `main.swift` (arguments), `Prompt.swift` (`ask` y/N, `choose` y/o/N), `Show.swift` (`show`: prints a line, coloured on a terminal; the Full Disk Access notes), `MenuCommand.swift`, `DiskCommand.swift`, `UninstallCommand.swift`, `JunkCommand.swift`, `TUI/Terminal.swift` (raw mode, keys, restore on exit/signals), `TUI/ReviewView.swift`, `TUI/Text.swift`.
 
 ## Development & testing
 
@@ -244,7 +246,7 @@ The uninstall app picker filters by just typing (no `/`), space selects, Enter c
 - No clever abstractions. No protocols with one implementation. No Linux shims.
 - Human-readable sizes: decimal units like Finder (1 GB = 1,000,000,000 bytes).
 - Errors: say what failed and on which path. Never crash on a permission error mid-scan.
-- Colors: minimal and respect `NO_COLOR`. Output must also work when piped (no TUI when stdout isn't a TTY — fall back to plain lists for `junk`/`uninstall`, refuse `disk` with a clear message).
+- Colors: minimal and respect `NO_COLOR` (only when stdout is a terminal): `moved` and `quit` green, `FAILED` red, headers bold, folder lines dim. TidyCore prints plain text; `show` in the tidy target adds the colour. Output must also work when piped (no TUI when stdout isn't a TTY — fall back to plain lists for `junk`/`uninstall`, refuse `disk` with a clear message).
 
 ---
 
@@ -281,10 +283,12 @@ The uninstall app picker filters by just typing (no `/`), space selects, Enter c
    - Installed 2026-10-19 as `~/.local/bin/taydic`, version 0.2.0 (`b69db00`), checked with `cmp` and `~/.local/bin/taydic --version`. Damba added the PATH line to `~/.zprofile` (`which taydic` says `~/.local/bin/taydic`) and moved the old `~/.local/bin/tidy` (0.1.0) to the Trash with `taydic disk` itself, so `which tidy` is macOS's `/usr/bin/tidy` again.
    - **Commits (Damba's rule for this phase):** nothing is committed until he has tested it. Fixes 1–6: one commit (done); 7–12: the next (done); then the rename (done); then the final review's fixes, one commit per half, each pushed after his test.
 
-**Where things stand (2026-10-19):** phases 0–8 are done, every step tested by Damba. taydic 0.2.0 is installed as `~/.local/bin/taydic` and in his PATH; the old `tidy` 0.1.0 is gone. Ready for his first real uninstalls:
-- **AppCleaner** first: `taydic uninstall appcleaner` offers 5 items, all his own (the app plus 4 bundle-ID leftovers), no sudo. Its terminal has no Full Disk Access, so `~/Library/Cookies` shows as "Not searched".
-- Then **DuckDuckGo** from the App Store (Damba's choice instead of uBlock Origin Lite): install, open, browse a bit, leave it running, uninstall. The first real sudo run on an app and the first real quit of a running app. Not its VPN: that installs a system extension taydic doesn't handle.
+**Where things stand (2026-10-19):** phases 0–8 are done, every step tested by Damba. taydic 0.2.0 is installed as `~/.local/bin/taydic` and in his PATH; the old `tidy` 0.1.0 is gone. His terminal has Full Disk Access since 2026-10-19 (his choice).
 
-Real removals have been tried once, on purpose and small (`junk orphans` and `junk caches`, user-owned items only): Trash, log and "Put Back" work. The sudo path ran for real on 2026-10-19, on a fixture in `/tmp/tidy-test` (password prompt, Ctrl-C at it, `sudo mv` into `~/.Trash`, " 2" for a taken name, the log). Never run for real yet: `launchctl bootout`, `brew uninstall`, quitting a running app.
+His first real uninstalls, 2026-10-19, each twice (once with the old output, once with the new per-folder layout):
+- **AppCleaner** (manual): the app plus its bundle-ID leftovers, all to the Trash without sudo. A name the Trash already had got macOS's timestamp suffix, shown with `→`.
+- **DuckDuckGo** from the App Store (bundle ID `com.duckduckgo.mobile.ios`; Damba's choice instead of uBlock Origin Lite): quit while running (`NSRunningApplication.terminate`), leftovers, its two `…macos.browser.*` group containers as fuzzy matches (same team ID, asked separately), and the app with sudo. Without Full Disk Access, macOS refused to move its container (`~/Library/Containers/…`) although `access()` said writable: a safe FAILED with a short reason. With Full Disk Access everything moved.
+
+Earlier real removals: `junk orphans` and `junk caches` (user-owned only): Trash, log and "Put Back" work. The sudo path also ran on a fixture in `/tmp/tidy-test` (password prompt, Ctrl-C at it, `sudo mv` into `~/.Trash`, " 2" for a taken name, the log). Never run for real yet: `launchctl bootout`, `brew uninstall`.
 
 Stop and ask whenever a decision isn't covered here instead of guessing.

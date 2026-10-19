@@ -54,25 +54,30 @@ func runUninstall(names: [String], dryRun: Bool) -> Int32 {
         return 0
     }
 
-    print("")
-    print("Found \(targets.count):")
+    show("")
+    show("Found \(targets.count):")
     for candidate in targets {
-        print("  \(candidate.name)  ·  \(candidate.source.rawValue)  ·  \(candidate.path)")
+        show("  \(candidate.name)  ·  \(candidate.source.rawValue)  ·  \(candidate.path)")
     }
 
     let running = targets.filter { $0.app.map(RunningApps.isRunning) ?? false }
     if !running.isEmpty {
         let list = running.map(\.name).joined(separator: ", ")
         let one = running.count == 1
+        show("")
         if dryRun {
-            print("--dry-run: would ask to quit \(list) first.")
+            show("--dry-run: would ask to quit \(list) first.")
         } else if ask("\(list) \(one ? "is" : "are") running. Quit \(one ? "it" : "them") now?") {
-            for candidate in running where !RunningApps.quit(candidate.app!) {
-                print("\(candidate.name) didn't quit, so it's skipped. Quit it yourself and run taydic again.")
-                targets.removeAll { $0 == candidate }
+            for candidate in running {
+                if RunningApps.quit(candidate.app!) {
+                    show("  quit    \(candidate.name)")
+                } else {
+                    show("\(candidate.name) didn't quit, so it's skipped. Quit it yourself and run taydic again.")
+                    targets.removeAll { $0 == candidate }
+                }
             }
         } else {
-            print("Skipped \(list): \(one ? "it's" : "they're") still running.")
+            show("Skipped \(list): \(one ? "it's" : "they're") still running.")
             targets.removeAll { running.contains($0) }
         }
     }
@@ -88,8 +93,8 @@ func runUninstall(names: [String], dryRun: Bool) -> Int32 {
         ok = uninstallApps(apps, dryRun: dryRun, interactive: interactive, note: note)
     }
     for candidate in viaBrew {
-        print("")
-        _ = BrewFlow.run(candidate, dryRun: dryRun, say: { print($0) }, ask: ask, choose: choose)
+        show("")
+        _ = BrewFlow.run(candidate, dryRun: dryRun, say: show, ask: ask, choose: choose)
     }
     return ok ? 0 : 1
 }
@@ -97,7 +102,8 @@ func runUninstall(names: [String], dryRun: Bool) -> Int32 {
 /// The .app part: one review list for all apps and their leftovers, then the safety core.
 /// False if something failed to move.
 private func uninstallApps(_ apps: [App], dryRun: Bool, interactive: Bool, note: String?) -> Bool {
-    print("Looking for leftovers…")
+    show("")
+    show("Looking for leftovers…")
     let found = apps.map(group(for:))
     let list = ReviewList(groups: found.map(\.group))
     let privacyProtected = found.flatMap(\.privacyProtected)
@@ -116,21 +122,7 @@ private func uninstallApps(_ apps: [App], dryRun: Bool, interactive: Bool, note:
         if let note { print(note) }
         selected = list.selectedPaths
     }
-    let notSearched = Leftovers.unreadable(Leftovers.locations())
-    if !privacyProtected.isEmpty {
-        print("")
-        print("Not in the list: macOS won't let taydic touch these without Full Disk Access:")
-        privacyProtected.forEach { print("  " + Paths.display($0)) }
-    }
-    if !notSearched.isEmpty {
-        print("")
-        print("Not searched, so leftovers in there aren't in the list either:")
-        notSearched.forEach { print("  \(Paths.display($0.path))  (\($0.reason))") }
-    }
-    if !privacyProtected.isEmpty || notSearched.contains(where: { $0.reason == RemovalPlan.privacyReason }) {
-        print("To include them: System Settings → Privacy & Security → Full Disk Access → add your terminal app,")
-        print("then run taydic again.")
-    }
+    showPrivacyNotes(protected: privacyProtected, notSearched: Leftovers.unreadable(Leftovers.locations()))
     guard !selected.isEmpty else {
         print("Nothing selected; no apps were changed.")
         return true
@@ -139,9 +131,9 @@ private func uninstallApps(_ apps: [App], dryRun: Bool, interactive: Bool, note:
     // Ticked fuzzy matches get their own block and question in the plan.
     let fuzzyLabel = Leftover.Match.fuzzy.label
     let fuzzy = list.groups.flatMap { $0.items.filter { $0.label == fuzzyLabel }.map(\.path) }
-    print("")
+    show("")
     let result = Remover.run(RemovalPlan(paths: selected, doubtful: .fuzzy(fuzzy)), dryRun: dryRun,
-                             say: { print($0) }, ask: ask, choose: choose)
+                             say: show, ask: ask, choose: choose)
     return result.failed == 0
 }
 

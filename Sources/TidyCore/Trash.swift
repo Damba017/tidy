@@ -9,18 +9,32 @@ public enum Trash {
 
     /// The denylist check always runs here; only the final move is `trashItem`,
     /// which tests replace so they can never reach the real Trash.
+    /// Errors say why in a few words; macOS's own (long) message is their `detail`, for the log.
     static func move(_ path: String, home: String, using trashItem: (String) throws -> String) throws -> String {
         let path = Paths.normalize(path)
         if let reason = Denylist.reason(for: path, home: home) {
-            throw TidyError("refused \(Paths.display(path)): \(reason)")
+            throw TidyError("refused (\(reason))")
         }
         do {
             return try trashItem(path)
         } catch let error as TidyError {
             throw error
         } catch {
-            throw TidyError("\(Paths.display(path)): \(error.localizedDescription)")
+            throw TidyError(shortReason(error), detail: error.localizedDescription)
         }
+    }
+
+    /// Why a move failed, in a few words. macOS says "“DuckDuckGo” couldn’t be moved to the trash because
+    /// you don’t have permission to access it." for an app's container when the terminal has no Full Disk Access.
+    static func shortReason(_ error: Error) -> String {
+        let error = error as NSError
+        let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError
+        let posix = underlying?.domain == NSPOSIXErrorDomain ? underlying?.code : nil
+        if (error.domain == NSCocoaErrorDomain && [NSFileWriteNoPermissionError, NSFileReadNoPermissionError].contains(error.code))
+            || posix == Int(EPERM) || posix == Int(EACCES) {
+            return "no permission (macOS protects it; Full Disk Access may help)"
+        }
+        return error.localizedDescription
     }
 
     /// The real Trash, the same one Finder uses (with "Put Back").

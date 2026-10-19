@@ -61,25 +61,42 @@ public enum Remover {
         }
 
         var logFailed = false
+        var logged = false
         func record(_ write: () throws -> Void) {
-            do { try write() } catch {
+            do {
+                try write()
+                logged = true
+            } catch {
                 if !logFailed { say("WARNING: \(error)") }
                 logFailed = true
             }
         }
+        // Results go right under the answer, per folder like the plan: the folder once, then the names.
+        var shownFolder: String?
+        func underItsFolder(_ item: RemovalPlan.Item) {
+            let folder = Paths.parent(item.path)
+            if folder != shownFolder { say(Output.folderLine(folder)) }
+            shownFolder = folder
+        }
         func moved(_ item: RemovalPlan.Item, to destination: String, sudo: Bool) {
             result.moved += 1
             result.bytes += item.size
-            say("  moved   \(Paths.display(item.path))  →  \(Paths.display(destination))")
+            underItsFolder(item)
+            let name = (item.path as NSString).lastPathComponent
+            // Where it went only when the Trash had to give it another name ("notes 2"); the log always says.
+            let renamed = (destination as NSString).lastPathComponent == name ? "" : "  →  " + Paths.display(destination)
+            say("    moved   " + name + renamed)
             record { try log.moved(item.path, size: item.size, to: destination, sudo: sudo) }
         }
-        func failed(_ item: RemovalPlan.Item, _ error: String, sudo: Bool) {
+        func failed(_ item: RemovalPlan.Item, _ reason: String, detail: String? = nil, sudo: Bool) {
             result.failed += 1
-            say("  FAILED  \(error)")
-            record { try log.failed(item.path, error: error, sudo: sudo) }
+            underItsFolder(item)
+            say("    FAILED  " + (item.path as NSString).lastPathComponent + ": " + reason)
+            record { try log.failed(item.path, error: detail ?? reason, sudo: sudo) }
         }
 
         func moveToTrash(_ items: [RemovalPlan.Item]) {
+            shownFolder = nil
             for item in items {
                 // Stop a launch agent before its plist goes, but never for a path the Trash would refuse.
                 if Launchctl.domain(of: item.path) == .user, Denylist.reason(for: item.path, home: plan.home) == nil {
@@ -87,10 +104,15 @@ public enum Remover {
                 }
                 do {
                     moved(item, to: try Trash.move(item.path, home: plan.home, using: trashItem), sudo: false)
+                } catch let error as TidyError {
+                    failed(item, error.description, detail: error.detail, sudo: false)
                 } catch {
                     failed(item, "\(error)", sudo: false)
                 }
             }
+        }
+        func total(_ items: [RemovalPlan.Item]) -> String {
+            Size.format(items.reduce(0) { $0 + $1.size })
         }
         var askedBefore = false
 
@@ -108,16 +130,19 @@ public enum Remover {
             if askedBefore {
                 // Show them again right before the question; the list above may have scrolled away.
                 say("")
-                say("Asked separately: \(plan.doubtfulCount(doubtful.count))")
-                doubtful.forEach { say("  " + Paths.display($0.path) + ($0.note.map { "  (\($0))" } ?? "")) }
+                say("Asked separately: \(plan.doubtfulCount(doubtful.count)), \(total(doubtful))")
+                RemovalPlan.listed(doubtful) { item, name in
+                    "      " + name + [item.note, item.status == .sudo ? "needs sudo" : nil].compactMap { $0 }
+                        .map { "  (\($0))" }.joined()
+                }.forEach(say)
+                say("")
             }
             askedBefore = true
             var remaining = doubtful
             var approved: [RemovalPlan.Item] = []
             while !remaining.isEmpty {
-                let size = Size.format(remaining.reduce(0) { $0 + $1.size })
-                let which = remaining.count != doubtful.count ? "the remaining " : remaining.count > 1 ? "all " : ""
-                switch choose("Move \(which)\(plan.doubtfulCount(remaining.count)) (\(size)) to the Trash?") {
+                let which = remaining.count != doubtful.count ? "the remaining " : "the "
+                switch choose("Move \(which)\(plan.doubtfulCount(remaining.count)) (\(total(remaining))) to the Trash?") {
                 case .all:
                     approved += remaining
                     remaining = []
@@ -136,26 +161,30 @@ public enum Remover {
                 }
             }
             moveToTrash(approved.filter { $0.status == .trash })
-            root += approved.filter { $0.status == .sudo }  // they still get the sudo question below
+            // They still get the sudo question below.
+            root = RemovalPlan.byFolder(root + approved.filter { $0.status == .sudo })
         }
 
         if !root.isEmpty {
-            if askedBefore {
+            if askedBefore { say("") }
+            if askedBefore && root.count > 1 {
                 // Show them again right before the question; the list above may have scrolled away.
-                say("")
                 say("Needs administrator rights (sudo): \(RemovalPlan.describe(root))")
-                root.forEach { say("  " + Paths.display($0.path)) }
+                RemovalPlan.listed(root) { _, name in "      " + name }.forEach(say)
+                say("")
             }
             let question = root.count == 1
-                ? "This item needs administrator rights (sudo). Continue?"
+                ? "\(Paths.display(root[0].path)) (\(total(root))) needs administrator rights (sudo). Continue?"
                 : "These \(root.count) items need administrator rights (sudo). Continue?"
             if ask(question) {
-                say("sudo asks for your password once. Finder's \"Put Back\" won't work for these;")
-                say("the log records where they came from. Emptying the Trash will ask for your password too.")
+                let it = root.count == 1 ? ("it", "it") : ("them", "they")
+                say("sudo asks for your password once. \"Put Back\" won't work for \(it.0); the log says where \(it.1) came from.")
+                say("Emptying the Trash will ask for your password too.")
                 if sudo(["-v"]) == 0 {
+                    shownFolder = nil
                     for (index, item) in root.enumerated() {
                         if let reason = Denylist.reason(for: item.path, home: plan.home) {
-                            failed(item, "refused \(Paths.display(item.path)): \(reason)", sudo: true)
+                            failed(item, "refused (\(reason))", sudo: true)
                             continue
                         }
                         // The name in the Trash first: when taydic can't see what's there, nothing is stopped or moved.
@@ -164,7 +193,7 @@ public enum Remover {
                             destination = try Trash.freeDestination(for: item.path, in: plan.home + "/.Trash")
                         } catch {
                             say("\(error): nothing more is moved with sudo.")
-                            for rest in root[index...] { failed(rest, "\(Paths.display(rest.path)): not moved", sudo: true) }
+                            for rest in root[index...] { failed(rest, "not moved", sudo: true) }
                             break
                         }
                         switch Launchctl.domain(of: item.path) {
@@ -177,10 +206,9 @@ public enum Remover {
                             moved(item, to: destination, sudo: true)
                         } else if status == 0 && Paths.exists(item.path) {
                             // mv -n never overwrites: someone took the name in the meantime.
-                            failed(item, "\(Paths.display(item.path)): not moved, \(Paths.display(destination)) was taken",
-                                   sudo: true)
+                            failed(item, "not moved, \(Paths.display(destination)) was taken", sudo: true)
                         } else {
-                            failed(item, "\(Paths.display(item.path)): sudo mv failed (exit \(status))", sudo: true)
+                            failed(item, "sudo mv failed (exit \(status))", sudo: true)
                         }
                     }
                 } else {
@@ -192,13 +220,12 @@ public enum Remover {
             }
         }
 
-        say("")
-        if result.moved > 0 {
-            let total = Size.format(result.bytes)
-            say("Moved \(RemovalPlan.count(result.moved)) (\(total)) to the Trash. Log: \(Paths.display(log.path))")
-        }
-        if result.failed > 0 {
-            say("\(RemovalPlan.count(result.failed)) failed, see above.")
+        if result.moved > 0 || result.failed > 0 {
+            let moved = result.moved == 0 ? "nothing moved"
+                : "\(RemovalPlan.count(result.moved)) (\(Size.format(result.bytes))) moved to the Trash"
+            say("")
+            say("Done: " + moved + (result.failed == 0 ? "." : ", \(result.failed) failed (see above)."))
+            if logged { say("Log: \(Paths.display(log.path))") }
         }
         return result
     }

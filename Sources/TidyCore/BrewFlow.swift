@@ -72,7 +72,7 @@ public enum BrewFlow {
         let notSearched = Leftovers.unreadable(Leftovers.locations(home: home))
         if !notSearched.isEmpty {
             say("Not searched, so leftovers in there can't be found:")
-            notSearched.forEach { say("  \(Paths.display($0.path))  (\($0.reason))") }
+            notSearched.forEach { say(Output.folderLine($0.path) + "  (\($0.reason))") }
         }
         // The cask's app (and so its bundle ID) came from before the uninstall, so it still counts.
         let leftovers = Leftovers.merge(

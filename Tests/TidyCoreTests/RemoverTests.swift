@@ -105,12 +105,26 @@ func run(_ plan: RemovalPlan, in fx: Fixture, _ t: Transcript, dryRun: Bool = fa
     let plan = RemovalPlan(paths: [file, fx.home + "/Library/Keychains", fx.home + "/gone"], home: fx.home)
     let text = plan.render().joined(separator: "\n")
 
-    #expect(text.contains("Move to the Trash: 1 item"))
-    #expect(text.contains(file))
-    #expect(text.contains("Protected, will not be touched: 1 item"))
-    #expect(text.contains(fx.home + "/Library/Keychains  (keychains)"))
-    #expect(text.contains("Not found, skipped: 1 item"))
-    #expect(text.contains(fx.home + "/gone"))
+    // Each block per folder: the folder once, then the names in it.
+    let blank = String(repeating: " ", count: 8)
+    #expect(text.contains("Move to the Trash: 1 item, ") && text.contains("\n\(Output.folderLine(fx.home))\n    "))
+    #expect(text.contains("  a.txt\n"))
+    #expect(text.contains("Protected, will not be touched: 1 item\n\(Output.folderLine(fx.home + "/Library"))\n"
+        + "    \(blank)  Keychains  (keychains)\n"))
+    #expect(text.contains("Not found, skipped: 1 item\n\(Output.folderLine(fx.home))\n    \(blank)  gone\n"))
+}
+
+@Test func planListsEachFolderOnceAndMovesInThatOrder() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let a = try fx.file("home/Caches/a")
+    let x = try fx.file("home/Logs/x")
+    let b = try fx.file("home/Caches/b")
+    let plan = RemovalPlan(paths: [a, x, b], home: fx.home)
+
+    let folders = plan.render().filter { $0.hasPrefix("  ") && !$0.hasPrefix("   ") }
+    #expect(folders == [Output.folderLine(fx.home + "/Caches"), Output.folderLine(fx.home + "/Logs")])
+    #expect(plan.sure.map(\.path) == [a, b, x])  // the order they're shown in is the order they go in
 }
 
 @Test func dryRunShowsThePlanAndChangesNothing() throws {
@@ -125,7 +139,7 @@ func run(_ plan: RemovalPlan, in fx: Fixture, _ t: Transcript, dryRun: Bool = fa
     #expect(result.moved == 0)
     #expect(t.questions.isEmpty)
     #expect(t.sudoCalls.isEmpty)
-    #expect(t.lines.contains { $0.contains(file) })
+    #expect(t.lines.contains(Output.folderLine(fx.home)) && t.lines.contains { $0.hasSuffix("  a.txt") })
     #expect(t.lines.last == "--dry-run: nothing was changed.")
     #expect(Paths.exists(file))
     #expect(fx.trashed().isEmpty)
@@ -157,7 +171,7 @@ func run(_ plan: RemovalPlan, in fx: Fixture, _ t: Transcript, dryRun: Bool = fa
 
     _ = run(RemovalPlan(paths: [file], home: fx.home), in: fx, t)
 
-    let shown = try #require(t.lines.firstIndex { $0.contains(file) })
+    let shown = try #require(t.lines.firstIndex { $0.hasSuffix("  " + (file as NSString).lastPathComponent) })
     let asked = try #require(t.lines.firstIndex { $0.hasPrefix("? ") })
     #expect(shown < asked)
 }
@@ -182,6 +196,70 @@ func run(_ plan: RemovalPlan, in fx: Fixture, _ t: Transcript, dryRun: Bool = fa
     #expect(lines.count == 2)
     #expect(lines.allSatisfy { $0.contains("\tmoved\t") && $0.hasSuffix("\tsudo=no") })
     #expect(lines[0].contains("\t\(a)\t\(fx.trashFolder)/a.txt\t"))
+}
+
+@Test func resultsComeRightUnderTheAnswerPerFolder() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let a = try fx.file("home/Scripts/a")
+    let b = try fx.file("home/Scripts/b")
+    let c = try fx.file("home/Containers/c")
+    let f1 = try fx.file("home/Scripts/f1")
+    let f2 = try fx.file("home/Scripts/f2")
+    try fx.file("trash/b")  // the Trash has a "b" already, so this one becomes "b 2"
+    let t = Transcript()
+    t.answers = [true]
+    t.choices = [.all]
+
+    _ = run(RemovalPlan(paths: [a, b, c, f1, f2], doubtful: .fuzzy([f1, f2]), home: fx.home), in: fx, t)
+
+    // Right under the answer, per folder; where it went only when the name changed.
+    let asked = try #require(t.lines.firstIndex { $0.hasPrefix("? Move 3 items") })
+    #expect(Array(t.lines[(asked + 1)...(asked + 6)]) == [
+        Output.folderLine(fx.home + "/Scripts"),
+        "    moved   a",
+        "    moved   b  →  \(fx.trashFolder)/b 2",
+        Output.folderLine(fx.home + "/Containers"),
+        "    moved   c",
+        "",
+    ])
+    // The doubtful ones once more, a blank line, their question, and the results right under it.
+    let again = try #require(t.lines.firstIndex { $0.hasPrefix("Asked separately: 2 fuzzy matches") })
+    #expect(Array(t.lines[(again + 1)...(again + 4)]) == [Output.folderLine(fx.home + "/Scripts"), "      f1", "      f2", ""])
+    #expect(t.lines[again + 5].hasPrefix("?? Move the 2 fuzzy matches"))
+    #expect(Array(t.lines[(again + 6)...(again + 8)]) == [Output.folderLine(fx.home + "/Scripts"), "    moved   f1", "    moved   f2"])
+    #expect(t.lines.contains { $0.hasPrefix("Done: 5 items") })
+    #expect(t.lines.last == "Log: \(fx.log.path)")
+}
+
+@Test func aFailedMoveSaysWhyInShortAndLogsMacOSsOwnWords() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let container = try fx.folder("home/Containers/com.example.app")
+    let t = Transcript()
+    t.answer = true
+    let denied = NSError(domain: NSCocoaErrorDomain, code: NSFileWriteNoPermissionError, userInfo: [
+        NSLocalizedDescriptionKey: "“Example” couldn’t be moved to the trash because you don’t have permission to access it.",
+    ])
+
+    let result = Remover.run(
+        RemovalPlan(paths: [container], home: fx.home), dryRun: false, say: t.say, ask: t.ask, choose: t.choose,
+        log: fx.log, sudo: t.sudo, launchctl: t.launchctl, trashItem: { _ in throw denied })
+
+    #expect(result.failed == 1)
+    #expect(t.lines.contains("    FAILED  com.example.app: no permission (macOS protects it; Full Disk Access may help)"))
+    #expect(t.lines.contains("Done: nothing moved, 1 failed (see above)."))
+    let log = try String(contentsOfFile: fx.log.path, encoding: .utf8)
+    #expect(log.contains("\tfailed\t") && log.contains("couldn’t be moved to the trash because"))
+    #expect(Paths.exists(container))
+}
+
+@Test func shortReasonsForFailedMoves() {
+    let underlying = NSError(domain: NSPOSIXErrorDomain, code: Int(EPERM))
+    let blocked = NSError(domain: NSCocoaErrorDomain, code: 3328, userInfo: [NSUnderlyingErrorKey: underlying])
+    #expect(Trash.shortReason(blocked).hasPrefix("no permission"))
+    let other = NSError(domain: NSCocoaErrorDomain, code: NSFileNoSuchFileError, userInfo: [NSLocalizedDescriptionKey: "gone"])
+    #expect(Trash.shortReason(other) == "gone")
 }
 
 @Test func oddCharactersInAPathKeepTheLogAtOneLinePerItem() throws {
@@ -305,7 +383,7 @@ func run(_ plan: RemovalPlan, in fx: Fixture, _ t: Transcript, dryRun: Bool = fa
     #expect(text.contains("Fuzzy matches, asked separately (only the name looks alike): 1 item"))
     #expect(t.questions.count == 2)
     #expect(t.questions[0].hasPrefix("Move 1 item"))
-    #expect(t.questions[1].hasPrefix("Move 1 fuzzy match"))
+    #expect(t.questions[1].hasPrefix("Move the 1 fuzzy match"))
     #expect(result.moved == 1)
     #expect(!Paths.exists(sure))
     #expect(Paths.exists(fuzzy))
@@ -324,7 +402,7 @@ func run(_ plan: RemovalPlan, in fx: Fixture, _ t: Transcript, dryRun: Bool = fa
     let plan = RemovalPlan(paths: [sure, fuzzyA, fuzzyB], doubtful: .fuzzy([fuzzyA, fuzzyB]), home: fx.home)
     let result = run(plan, in: fx, t)
 
-    #expect(t.questions[1].hasPrefix("Move all 2 fuzzy matches"))
+    #expect(t.questions[1].hasPrefix("Move the 2 fuzzy matches"))
     #expect(result.moved == 2)
     #expect(Paths.exists(sure))
     #expect(!Paths.exists(fuzzyA) && !Paths.exists(fuzzyB))
@@ -344,7 +422,7 @@ func run(_ plan: RemovalPlan, in fx: Fixture, _ t: Transcript, dryRun: Bool = fa
     let result = run(RemovalPlan(paths: [a, b, c], doubtful: .orphans(notes), home: fx.home), in: fx, t)
 
     #expect(t.questions.count == 5)
-    #expect(t.questions[0].hasPrefix("Move all 3 orphans"))
+    #expect(t.questions[0].hasPrefix("Move the 3 orphans"))
     #expect(t.questions[1].contains("orphan-a") && t.questions[1].contains("high confidence"))
     #expect(t.questions[2].contains("orphan-b") && t.questions[2].contains("low confidence"))
     #expect(t.questions[3].hasPrefix("Move the remaining 1 orphan"))
