@@ -62,6 +62,7 @@ To update later: `git pull`, build again and copy the binary over the old one.
 ```
 taydic                       Main menu
 taydic uninstall [name...]   Uninstall apps/brew packages and their leftovers
+taydic leftovers name        Find what an app you already removed left behind
 taydic disk [path]           Disk-usage browser
 taydic junk [category]       Find junk: orphans | caches | large | dev
 taydic --help, -h            Show this help
@@ -92,6 +93,14 @@ Give one or more names (`taydic uninstall discord firefox fastfetch`), or none f
 ### `taydic disk`
 
 Pick a volume (or give a folder) and browse it, biggest first: Enter opens a folder, ← goes back, `/` searches, `d` moves the selected item to the Trash (after the plan and a `y`), `o` shows it in Finder, `?` lists all keys. Sizes are the space actually used on disk; hard links count once.
+
+### `taydic leftovers`
+
+For apps you removed before you had taydic (dragged to the Trash, say): `taydic leftovers discord` looks for what's left of it by name, in the same `~/Library` and `/Library` folders and in `~/.config/discord` and friends. Also in the menu, as option 4.
+
+- Only for things that are gone: if an app, Homebrew package, macOS app or command by that name is still there, taydic says so and stops (its files are in use).
+- What another app on your Mac uses, by name or bundle ID, stays out. If an installed app has a name like it (Discord PTB for "discord", Google Chrome for "google"), taydic warns you and nothing starts ticked.
+- Exact name matches start ticked; names that only contain it are asked about separately.
 
 ### `taydic junk`
 

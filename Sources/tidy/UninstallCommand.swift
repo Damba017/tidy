@@ -138,13 +138,19 @@ private func uninstallApps(_ apps: [App], dryRun: Bool, interactive: Bool, note:
 }
 
 /// The app bundle plus everything it left behind, as one group of the review list.
+private func group(for app: App) -> (group: ReviewList.Group, privacyProtected: [String]) {
+    reviewGroup(title: app.name, detail: "\(app.source.rawValue) · \(Paths.display(app.path))",
+                entries: [(app.path, "app", true)] + Leftovers.find(for: app).map { ($0.path, $0.match.label, $0.checkedByDefault) })
+}
+
+/// One group of the review list from these paths (shared by uninstall and leftovers).
 /// Protected or missing paths never make it into the list; the ones macOS privacy protection
 /// keeps taydic out of are returned separately so the user hears about them.
-private func group(for app: App) -> (group: ReviewList.Group, privacyProtected: [String]) {
-    let candidates = [(app.path, "app", true)] + Leftovers.find(for: app).map { ($0.path, $0.match.label, $0.checkedByDefault) }
+func reviewGroup(title: String, detail: String, entries: [(path: String, label: String, checked: Bool)])
+    -> (group: ReviewList.Group, privacyProtected: [String]) {
     var items: [ReviewList.Item] = []
     var privacyProtected: [String] = []
-    for (path, label, checked) in candidates {
+    for (path, label, checked) in entries {
         guard let planned = RemovalPlan(paths: [path]).items.first else { continue }
         switch planned.status {
         case .trash, .sudo:
@@ -156,8 +162,7 @@ private func group(for app: App) -> (group: ReviewList.Group, privacyProtected: 
             break
         }
     }
-    let group = ReviewList.Group(title: app.name, detail: "\(app.source.rawValue) · \(Paths.display(app.path))", items: items)
-    return (group, privacyProtected)
+    return (ReviewList.Group(title: title, detail: detail, items: items), privacyProtected)
 }
 
 /// Several candidates match `name`: let the user pick one by number.

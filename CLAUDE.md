@@ -66,6 +66,7 @@ Useful system APIs (so you don't reach for packages):
 ```
 taydic                       Main menu (TUI)
 taydic uninstall [name…]     Uninstall one or more apps/brew packages + leftovers
+taydic leftovers name        What an app you already removed left behind, found by its name
 taydic disk [path]           Disk-usage browser (TUI)
 taydic junk [category]       Find junk: orphans | caches | large | dev
 taydic --help / -h
@@ -89,6 +90,7 @@ taydic
   1  Uninstall an app
   2  Disk overview
   3  Find junk
+  4  Find leftovers   (asks for the name)
   q  Quit
 ```
 Number keys or arrows + Enter. Each option drops into the same flow as its subcommand (`--dry-run` and the junk flags pass through). Afterwards: "Press Enter for the menu, or q and Enter to quit", so the flow's output stays readable and he can do several things in one go. When stdout/stdin isn't a terminal, `taydic` prints the help instead.
@@ -147,6 +149,13 @@ For each name:
    - If something else depends on it (`brew uses --installed <name>`), warn before asking.
    - Said no, or `brew uninstall` failed → its leftovers are left alone too. `--dry-run` never runs brew; it prints "would run: brew uninstall …" and the leftover plan.
    - brew queries run with `HOMEBREW_NO_AUTO_UPDATE=1`. Even read-only queries let brew refresh its own cache in `~/Library/Caches/Homebrew/api`; that's brew's housekeeping, not an install.
+
+### `taydic leftovers name` (added 2026-10-20)
+For apps and tools that are already gone, e.g. dragged to the Trash before taydic existed: `junk orphans` only finds bundle-ID-shaped names, this finds `Application Support/discord`, `Logs/Discord`, `~/.config/discord` too. Menu option 4 asks for the name.
+- Looks where `uninstall` looks (the `~/Library` and `/Library` locations) and at the brew-style dotfiles (`~/.config/<name>`, …, not when macOS has a tool of that name), by name and fuzzy; no bundle ID to go by, so `com.hnc.Discord` is fuzzy. Name matches start ticked, fuzzy ones unticked and asked separately (`y = all · o = one by one · N = none`). Then the safety core as always.
+- Refused: a path, fewer than 3 letters or a generic word (`helper`, `app`, …), and anything still installed — an app or brew package by that name or bundle ID (→ "use taydic uninstall"), one of macOS's own apps (`/System/Applications`, `/System/Library/CoreServices`, Safari's cryptex) or a running one, or a command of that name in the PATH (`git`, `bun`, …) (→ "taydic leaves them alone").
+- What another app on this Mac (installed, running or macOS's own) claims, by bundle ID or by name, is left out; Apple's names only ever match by bundle ID.
+- When an installed app has the name in its name or bundle ID (Discord PTB for "discord", `com.google.Chrome` for "google": its files may even sit in a folder called exactly that), taydic says so, nothing starts ticked and everything is asked separately.
 
 ### `taydic disk [path]`
 - No path → list mounted volumes (Macintosh HD + any externals) with used/free, let him pick.
@@ -227,9 +236,10 @@ The uninstall app picker filters by just typing (no `/`), space selects, Enter c
 - `Output.swift` — lists of paths per folder, and the colours (which lines get which).
 - `AppFinder.swift` (.app bundles), `Brew.swift` (read-only queries + running `brew uninstall`), `Candidates.swift` (apps + brew in one list), `Leftovers.swift` (bundle ID / name / fuzzy / pkg receipts / dotfiles), `BrewFlow.swift`, `RunningApps.swift` (AppKit, only for quitting/bundle IDs).
 - `Junk.swift` — caches, large & old + dev (one `fts` walk through `~`), orphans.
+- `LeftoverSearch.swift` — `taydic leftovers`: which names may be searched, what counts as still installed, the search itself.
 - `ReviewList.swift` — the review-list model (groups, checks, search, Tab jumps) and the uninstall picker model.
 
-`Sources/tidy/` (terminal): `main.swift` (arguments), `Prompt.swift` (`ask` y/N, `choose` y/o/N), `Show.swift` (`show`: prints a line, coloured on a terminal; the Full Disk Access notes), `MenuCommand.swift`, `DiskCommand.swift`, `UninstallCommand.swift`, `JunkCommand.swift`, `TUI/Terminal.swift` (raw mode, keys, restore on exit/signals), `TUI/ReviewView.swift`, `TUI/Text.swift`.
+`Sources/tidy/` (terminal): `main.swift` (arguments), `Prompt.swift` (`ask` y/N, `choose` y/o/N), `Show.swift` (`show`: prints a line, coloured on a terminal; the Full Disk Access notes), `MenuCommand.swift`, `DiskCommand.swift`, `UninstallCommand.swift` (also `reviewGroup`, shared with leftovers), `LeftoversCommand.swift`, `JunkCommand.swift`, `TUI/Terminal.swift` (raw mode, keys, restore on exit/signals), `TUI/ReviewView.swift`, `TUI/Text.swift`.
 
 ## Development & testing
 
@@ -290,5 +300,7 @@ His first real uninstalls, 2026-10-19, each twice (once with the old output, onc
 - **DuckDuckGo** from the App Store (bundle ID `com.duckduckgo.mobile.ios`; Damba's choice instead of uBlock Origin Lite): quit while running (`NSRunningApplication.terminate`), leftovers, its two `…macos.browser.*` group containers as fuzzy matches (same team ID, asked separately), and the app with sudo. Without Full Disk Access, macOS refused to move its container (`~/Library/Containers/…`) although `access()` said writable: a safe FAILED with a short reason. With Full Disk Access everything moved.
 
 Earlier real removals: `junk orphans` and `junk caches` (user-owned only): Trash, log and "Put Back" work. The sudo path also ran on a fixture in `/tmp/tidy-test` (password prompt, Ctrl-C at it, `sudo mv` into `~/.Trash`, " 2" for a taken name, the log). Never run for real yet: `launchctl bootout`, `brew uninstall`.
+
+**After phase 8:** `taydic leftovers <name>` (2026-10-20, Damba's idea, see its section above): built, tested on fixtures and with `--dry-run` (`mozilla` found `~/Library/Caches/Mozilla` and the root-owned `/Library/Application Support/Mozilla`; `notes`, `discord`, `git` refused as still installed; `anthropic` warned about Claude and offered none of its files). Waiting for Damba's test, then commit, push and install as 0.3.0.
 
 Stop and ask whenever a decision isn't covered here instead of guessing.

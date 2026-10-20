@@ -7,6 +7,7 @@ taydic \(Tidy.version) - uninstall apps, browse disk usage, find junk
 Usage:
   taydic                       Main menu
   taydic uninstall [name...]   Uninstall apps/brew packages and their leftovers
+  taydic leftovers name        Find what an app you already removed left behind
   taydic disk [path]           Disk-usage browser
   taydic junk [category]       Find junk: orphans | caches | large | dev
   taydic --help, -h            Show this help
@@ -70,6 +71,9 @@ case nil:
     exit(runMenu(dryRun: dryRun, junkOptions: junkOptions))
 case "uninstall":
     exit(runUninstall(names: rest, dryRun: dryRun))
+case "leftovers":
+    if rest.count != 1 { fail("'leftovers' needs one name, e.g. taydic leftovers discord (quotes around a name with spaces).") }
+    exit(runLeftovers(name: rest[0], dryRun: dryRun))
 case "disk":
     if rest.count > 1 { fail("'disk' takes at most one path.") }
     exit(runDisk(path: rest.first, dryRun: dryRun))
