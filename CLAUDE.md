@@ -293,7 +293,7 @@ The uninstall app picker filters by just typing (no `/`), space selects, Enter c
    - Installed 2026-10-19 as `~/.local/bin/taydic`, version 0.2.0 (`b69db00`), checked with `cmp` and `~/.local/bin/taydic --version`. Damba added the PATH line to `~/.zprofile` (`which taydic` says `~/.local/bin/taydic`) and moved the old `~/.local/bin/tidy` (0.1.0) to the Trash with `taydic disk` itself, so `which tidy` is macOS's `/usr/bin/tidy` again.
    - **Commits (Damba's rule for this phase):** nothing is committed until he has tested it. Fixes 1–6: one commit (done); 7–12: the next (done); then the rename (done); then the final review's fixes, one commit per half, each pushed after his test.
 
-**Where things stand (2026-10-19):** phases 0–8 are done, every step tested by Damba. taydic 0.2.1 (the per-folder output with colours) is installed as `~/.local/bin/taydic` and in his PATH, checked with `cmp` and `--version`; the old `tidy` 0.1.0 is gone. His terminal has Full Disk Access since 2026-10-19 (his choice).
+**Where things stand (2026-10-19):** phases 0–8 are done, every step tested by Damba. taydic 0.3.0 (with `leftovers`, see "After phase 8" below) is installed as `~/.local/bin/taydic` and in his PATH, checked with `cmp` and `--version`; the old `tidy` 0.1.0 is gone. His terminal has Full Disk Access since 2026-10-19 (his choice).
 
 His first real uninstalls, 2026-10-19, each twice (once with the old output, once with the new per-folder layout):
 - **AppCleaner** (manual): the app plus its bundle-ID leftovers, all to the Trash without sudo. A name the Trash already had got macOS's timestamp suffix, shown with `→`.
@@ -301,6 +301,6 @@ His first real uninstalls, 2026-10-19, each twice (once with the old output, onc
 
 Earlier real removals: `junk orphans` and `junk caches` (user-owned only): Trash, log and "Put Back" work. The sudo path also ran on a fixture in `/tmp/tidy-test` (password prompt, Ctrl-C at it, `sudo mv` into `~/.Trash`, " 2" for a taken name, the log). Never run for real yet: `launchctl bootout`, `brew uninstall`.
 
-**After phase 8:** `taydic leftovers <name>` (2026-10-20, Damba's idea, see its section above): built, tested on fixtures and with `--dry-run` (`mozilla` found `~/Library/Caches/Mozilla` and the root-owned `/Library/Application Support/Mozilla`; `notes`, `discord`, `git` refused as still installed; `anthropic` warned about Claude and offered none of its files). Waiting for Damba's test, then commit, push and install as 0.3.0.
+**After phase 8:** `taydic leftovers <name>` (2026-10-20, Damba's idea, see its section above): built, tested on fixtures and with `--dry-run` (`mozilla` found `~/Library/Caches/Mozilla` and the root-owned `/Library/Application Support/Mozilla`; `notes`, `discord`, `git` refused as still installed; `anthropic` warned about Claude and offered none of its files). Damba tested it (dry-runs, menu option 4, a real run for `mozilla` with sudo); committed as `9c61d7a`, installed as 0.3.0 in `~/.local/bin` (checked with `cmp` and `--version`) and pushed.
 
 Stop and ask whenever a decision isn't covered here instead of guessing.
