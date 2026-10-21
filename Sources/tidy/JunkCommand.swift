@@ -30,12 +30,13 @@ func runJunk(category: JunkCategory?, options: JunkOptions, dryRun: Bool) -> Int
             break
         }
     }
-    // Caches & logs, Dev junk, the Large & old groups, Orphans.
+    // Caches & logs, Dev junk, the Large & old groups, Orphans, Orphans · cache folder.
     func rank(_ group: String) -> Int {
-        group == Junk.groupCaches ? 0 : group == Junk.groupDev ? 1 : group == Junk.groupOrphans ? 3 : 2
+        group == Junk.groupCaches ? 0 : group == Junk.groupDev ? 1 : group == Junk.groupOrphans ? 3
+            : group == Junk.groupOrphanCaches ? 4 : 2
     }
     let groups = order.sorted { (rank($0), $0) < (rank($1), $1) }.map { title in
-        ReviewList.Group(title: title, detail: detail(for: title), items: itemsByGroup[title] ?? [])
+        ReviewList.Group(title: title, detail: detail(for: title, options: options), items: itemsByGroup[title] ?? [])
     }
     let list = ReviewList(groups: groups)
     guard !list.groups.isEmpty else {
@@ -73,11 +74,12 @@ func runJunk(category: JunkCategory?, options: JunkOptions, dryRun: Bool) -> Int
     return result.failed > 0 ? 1 : 0
 }
 
-private func detail(for group: String) -> String {
+private func detail(for group: String, options: JunkOptions) -> String {
     switch group {
     case Junk.groupCaches: "apps rebuild these when needed"
     case Junk.groupDev: "rebuilt or re-downloaded when needed"
     case Junk.groupOrphans: "no installed app claims these; check each one"
+    case Junk.groupOrphanCaches: "caches no installed app claims, untouched for \(options.orphanCacheDays)+ days; check each one"
     default: "your own files, biggest first"
     }
 }

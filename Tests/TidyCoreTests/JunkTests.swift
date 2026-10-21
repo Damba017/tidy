@@ -56,6 +56,56 @@ func plainNamesAreNoBundleIDs(entry: String) {
     #expect(found.allSatisfy { !$0.checked && $0.group == Junk.groupOrphans })
 }
 
+@Test func orphansInTheCacheFolderOnlyWhenUntouchedForLong() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let cache = try fx.folder("C")
+    /// A folder in the cache folder with one file in it, everything last changed `days` ago.
+    func cacheEntry(_ name: String, days: Double) throws -> String {
+        let file = try fx.file("C/\(name)/Cache.db")
+        age(file, days: days)
+        age(Paths.parent(file), days: days)
+        return Paths.parent(file)
+    }
+    let old = try cacheEntry("com.innersloth.amongus", days: 60)            // orphan
+    let oldDiscord = try cacheEntry("com.gone.discordthing", days: 60)       // orphan, low: "discord" is an app name
+    _ = try cacheEntry("net.java.openjdk.java", days: 3)                     // still used (Java for Minecraft): stays
+    let deep = try cacheEntry("com.gone.deep", days: 60)
+    let fresh = try fx.file("C/com.gone.deep/sub/new.db")                    // changed today, deep inside: stays
+    age(deep, days: 60)
+    _ = fresh
+    _ = try cacheEntry("com.hnc.Discord.helper", days: 60)                  // claimed by Discord
+    _ = try cacheEntry("com.utmapp.QEMUHelper", days: 60)                   // same vendor as UTM
+    _ = try cacheEntry("com.apple.Safari", days: 60)                        // Apple: never
+    _ = try cacheEntry("com.apple.WebKit.GPU+com.gone.app", days: 60)       // Apple's name: never
+    _ = try cacheEntry("gamed", days: 60)                                   // plain name (a macOS daemon): never
+    _ = try cacheEntry("com.elsewhere.app", days: 60)                       // an app Spotlight finds elsewhere
+    let locked = try cacheEntry("com.gone.locked", days: 60)                // can't look inside: can't tell, stays
+    try fx.folder("C/com.gone.locked/inner")
+    age(locked, days: 60)
+    chmod(locked + "/inner", 0)
+    defer { chmod(locked + "/inner", 0o755) }
+
+    let found = Junk.orphans(
+        home: fx.home, claimedIDs: ["com.hnc.Discord", "com.utmapp.UTM"], names: ["Discord", "UTM"],
+        spotlight: { $0 == "com.elsewhere.app" }, cacheFolder: cache,
+        unusedSince: Date().addingTimeInterval(-Double(JunkOptions().orphanCacheDays) * 86_400))
+
+    #expect(JunkOptions().orphanCacheDays == 21)
+    #expect(Set(found.map(\.path)) == [old, oldDiscord])
+    #expect(found.allSatisfy { !$0.checked && $0.group == Junk.groupOrphanCaches })
+    #expect(found.first { $0.path == old }?.note == "high confidence")
+    #expect(found.first { $0.path == oldDiscord }?.note == "low confidence")
+    #expect(found.first { $0.path == old }?.label.hasPrefix("orphan, high confidence, last changed ") == true)
+    // Without a cache folder (and in the Library folders) nothing changes.
+    #expect(Junk.orphans(home: fx.home, claimedIDs: [], names: [], spotlight: { _ in false }).isEmpty)
+}
+
+@Test func theCacheFolderIsYoursAndLooksLikeIt() {
+    let folder = Paths.userCacheFolder
+    #expect(folder?.hasPrefix("/private/var/folders/") == true && folder?.hasSuffix("/C") == true)
+}
+
 @Test func cachesLogsAndOnlyOldCrashReports() throws {
     let fx = try Fixture()
     defer { fx.remove() }

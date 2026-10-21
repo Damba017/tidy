@@ -14,6 +14,11 @@ public enum Paths {
         return path.hasPrefix("/private/var/folders/") && isTempOrCache ? path : nil
     }
 
+    /// The C folder of `userTempFolders`: caches, where $TMPDIR (T) holds temp files.
+    public static var userCacheFolder: String? {
+        userTempFolders.first { ($0 as NSString).lastPathComponent == "C" }
+    }
+
     /// Absolute path with `~` expanded, trailing slashes dropped and symlinks in the
     /// parent folders resolved. The last component is never resolved: removing a symlink
     /// removes the link, never its target. Its case comes from the disk, though: on a

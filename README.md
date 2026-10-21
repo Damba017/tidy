@@ -109,7 +109,7 @@ For apps you removed before you had taydic (dragged to the Trash, say): `taydic 
 - **caches**: everything in `~/Library/Caches` and `~/Library/Logs` (not Apple's `com.apple.*` ones), and crash reports older than 30 days.
 - **dev**: Xcode DerivedData, package-manager caches, unavailable simulators, and `node_modules`, `.build`, `target` and Python virtual environments of projects you haven't touched for 60 days.
 - **large**: big files in your home folder, and medium ones you haven't used for a long time. Never ticked for you.
-- **orphans**: `~/Library` folders and preferences of apps that are no longer installed. Never ticked for you, and asked about separately.
+- **orphans**: `~/Library` folders and preferences of apps that are no longer installed. Never ticked for you, and asked about separately. Under their own heading, the same for caches in your cache folder in `/var/folders`, but only the ones nothing has touched for 21 days (so a program that isn't an app, like a Java runtime, keeps its cache while it's in use).
 
 ## Permissions
 

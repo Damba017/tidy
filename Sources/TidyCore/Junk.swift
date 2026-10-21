@@ -22,6 +22,7 @@ public struct JunkOptions: Sendable {
     public var largeLimit = 100                          // biggest first, at most this many
     public var crashReportDays = 30
     public var staleDays = 60                            // dev: project untouched this long
+    public var orphanCacheDays = 21                      // orphans in the cache folder: untouched this long
     public init() {}
 }
 
@@ -30,6 +31,7 @@ public enum Junk {
     public static let groupCaches = "Caches & logs"
     public static let groupDev = "Dev junk"
     public static let groupOrphans = "Orphans"
+    public static let groupOrphanCaches = "Orphans · cache folder"
 
     /// Junk in the asked categories, plus how many large files didn't fit under the limit.
     public static func find(_ categories: Set<JunkCategory>, options: JunkOptions) -> (items: [JunkItem], largeLeftOut: Int) {
@@ -53,7 +55,8 @@ public enum Junk {
         if categories.contains(.orphans) {
             let claimed = AppFinder.installedApps().compactMap(\.bundleID) + RunningApps.bundleIDs()
             let names = AppFinder.installedApps().flatMap(\.names) + (Brew.isInstalled ? Brew.installed().map(\.name) : [])
-            items += orphans(home: home, claimedIDs: claimed, names: names, spotlight: spotlightHasApp)
+            items += orphans(home: home, claimedIDs: claimed, names: names, spotlight: spotlightHasApp,
+                             cacheFolder: Paths.userCacheFolder, unusedSince: now.addingTimeInterval(-Double(options.orphanCacheDays) * 86_400))
         }
         return (items, leftOut)
     }
@@ -263,23 +266,57 @@ public enum Junk {
     /// Only bundle-ID-shaped names count: plain names are mostly macOS's own (AddressBook, Knowledge, …).
     /// Never anything of Apple's. Same vendor as an installed app (com.utmapp.QEMUHelper next to UTM)
     /// counts as claimed. High confidence, unless one of your app names appears in it.
-    static func orphans(home: String, claimedIDs: [String], names: [String], spotlight: (String) -> Bool) -> [JunkItem] {
+    /// Also the same in `cacheFolder` (the user's own cache folder in /var/folders, its own group), but there
+    /// only what nothing changed since `unusedSince`: a program taydic doesn't know as an app (Java, say)
+    /// still writes its cache when it runs. Not $TMPDIR: that holds live temp files (sockets, locks, half-done
+    /// downloads), and macOS clears old ones itself.
+    static func orphans(home: String, claimedIDs: [String], names: [String], spotlight: (String) -> Bool,
+                        cacheFolder: String? = nil, unusedSince: Date = .distantPast) -> [JunkItem] {
         let claimed = claimedIDs.map { $0.lowercased() }
         let vendors = Set(claimed.compactMap(vendor))
         let names = Leftovers.usableNames(names)
+        let locations = orphanLocations.map { (home + "/Library/" + $0, groupOrphans) }
+            + (cacheFolder.map { [($0, groupOrphanCaches)] } ?? [])
         var items: [JunkItem] = []
-        for location in orphanLocations.map({ home + "/Library/" + $0 }) {
+        for (location, group) in locations {
             for entry in AppFinder.contents(of: location) {
                 guard let id = bundleID(in: entry), !id.contains("com.apple"), !appleVendors.contains(vendor(id) ?? ""),
                       !claimed.contains(where: { Leftovers.match(entry, bundleID: $0, names: []) == .bundleID }),
-                      !vendors.contains(vendor(id) ?? ""),
-                      !spotlight(id) else { continue }
+                      !vendors.contains(vendor(id) ?? "") else { continue }
+                let path = location + "/" + entry
+                var changed: Date?
+                if group == groupOrphanCaches {
+                    changed = lastChange(inTree: path)
+                    guard let changed, changed < unusedSince else { continue }
+                }
+                guard !spotlight(id) else { continue }
                 let confidence = names.contains { id.contains($0) } ? "low confidence" : "high confidence"
-                items.append(JunkItem(path: location + "/" + entry, label: "orphan, \(confidence)", group: groupOrphans,
-                                      checked: false, note: confidence))
+                let label = "orphan, \(confidence)" + (changed.map { ", last changed \(day($0))" } ?? "")
+                items.append(JunkItem(path: path, label: label, group: group, checked: false, note: confidence))
             }
         }
         return items
+    }
+
+    /// The most recent change to `path` or anything inside it, symlinks not followed. Nil when any of it
+    /// can't be read: then taydic can't tell whether it's still in use.
+    static func lastChange(inTree path: String) -> Date? {
+        guard let cPath = strdup(path) else { return nil }
+        defer { free(cPath) }
+        var argv: [UnsafeMutablePointer<CChar>?] = [cPath, nil]
+        guard let fts = fts_open(&argv, FTS_PHYSICAL | FTS_XDEV | FTS_NOCHDIR, nil) else { return nil }
+        defer { fts_close(fts) }
+        var newest = Int.min
+        while let entry = fts_read(fts) {
+            switch Int32(entry.pointee.fts_info) {
+            case FTS_DP: continue
+            case FTS_DNR, FTS_ERR, FTS_NS: return nil
+            default:
+                guard let st = entry.pointee.fts_statp?.pointee else { return nil }
+                newest = max(newest, st.st_mtimespec.tv_sec)
+            }
+        }
+        return newest == Int.min ? nil : Date(timeIntervalSince1970: TimeInterval(newest))
     }
 
     /// The bundle ID in a Library entry's name, lowercased: "com.foo.bar.plist" → "com.foo.bar",
