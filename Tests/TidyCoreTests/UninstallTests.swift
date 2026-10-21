@@ -105,7 +105,14 @@ func makeApp(_ fx: Fixture, _ relative: String, bundleID: String, name: String? 
     ("discord", .name),
     ("Discord", .name),
     ("BetterDiscord", .fuzzy),
-    ("com.hnc.DiscordPTB", .fuzzy),
+    // The bundle ID with more letters or digits after it: its own label, ticked (another app keeps its own, see below).
+    ("com.hnc.DiscordPTB", .bundleIDPrefix),
+    ("com.hnc.DiscordChannel.plist", .bundleIDPrefix),
+    ("com.hnc.Discord2", .bundleIDPrefix),
+    ("com.hnc.Discord-Helper", .fuzzy),  // only a letter or a digit continues the bundle ID
+    // WebKit's temp folders for the app: only the part after the + counts.
+    ("com.apple.WebKit.GPU+com.hnc.Discord", .bundleID),
+    ("com.apple.WebKit.WebContent+com.hnc.Discord", .bundleID),
 ])
 func leftoverNamesMatch(entry: String, expected: Leftover.Match) {
     #expect(Leftovers.match(entry, bundleID: "com.hnc.Discord", names: ["discord"]) == expected)
@@ -115,6 +122,8 @@ func leftoverNamesMatch(entry: String, expected: Leftover.Match) {
     "com.spotify.client", "Google", "com.apple.discord.helper", "dis", "com.hnc.Discor",
     // Apple's, even where the name doesn't start with com.apple.
     "group.com.apple.discord", "2BUA8C4S2C.com.apple.discord.plist",
+    // WebKit's folders for other apps, or for one that only starts like it.
+    "com.apple.WebKit.GPU+com.apple.Safari", "com.apple.WebKit.GPU+com.hnc.DiscordPTB", "com.apple.WebKit.GPU+discord",
 ])
 func unrelatedEntriesDontMatch(entry: String) {
     #expect(Leftovers.match(entry, bundleID: "com.hnc.Discord", names: ["discord"]) == nil)
@@ -124,6 +133,15 @@ func unrelatedEntriesDontMatch(entry: String) {
     // An app called Notes never gets the Notes database; Apple's Pages still finds its own group container.
     #expect(Leftovers.match("group.com.apple.notes", bundleID: "com.example.notes", names: ["notes"]) == nil)
     #expect(Leftovers.match("group.com.apple.Pages", bundleID: "com.apple.Pages", names: ["pages"]) == .bundleID)
+    // Not even as a prefix: macOS's own remote management agent isn't Apple Remote Desktop's.
+    #expect(Leftovers.match("com.apple.RemoteDesktopAgent.plist", bundleID: "com.apple.RemoteDesktop", names: []) == nil)
+    #expect(Leftovers.match("com.apple.WebKit.GPU+com.apple.Pages", bundleID: "com.apple.Pages", names: []) == .bundleID)
+}
+
+@Test func aShortBundleIDIsNoPrefix() {
+    // com.foo + "bar" is another maker altogether.
+    #expect(Leftovers.match("com.foobar.app", bundleID: "com.foo", names: []) == nil)
+    #expect(Leftovers.match("com.foo.bar", bundleID: "com.foo", names: []) == .bundleID)
 }
 
 /// Another app on this Mac, as Leftovers.otherApps returns it.
@@ -186,6 +204,80 @@ private func other(_ bundleID: String?, at path: String, name: String? = nil, ex
             == ["com.google.Chrome.canary", "com.google.Chrome.canary.plist"])
 }
 
+@Test func anInstalledAppWhoseBundleIDStartsLikeItKeepsItsFiles() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    try fx.file("lib/Preferences/com.example.App.plist")
+    try fx.file("lib/Preferences/com.example.AppChannel.plist")    // the app's own, by prefix
+    try fx.file("lib/Preferences/com.example.AppBeta.plist")       // AppBeta's, still installed
+    try fx.folder("lib/Caches/com.example.AppBetaHelper")          // AppBeta's too, by prefix
+    let locations = ["Caches", "Preferences"].map { fx.root + "/lib/" + $0 }
+
+    let app = Leftovers.find(bundleID: "com.example.App", names: [], in: locations,
+                             others: [other("com.example.AppBeta", at: "/Applications/AppBeta.app")])
+    let beta = Leftovers.find(bundleID: "com.example.AppBeta", names: [], in: locations,
+                              others: [other("com.example.App", at: "/Applications/App.app")])
+    let alone = Leftovers.find(bundleID: "com.example.App", names: [], in: locations, others: [])
+
+    #expect(app.map { ($0.path as NSString).lastPathComponent } == ["com.example.App.plist", "com.example.AppChannel.plist"])
+    #expect(app.map(\.match) == [.bundleID, .bundleIDPrefix])
+    #expect(app.allSatisfy { $0.checkedByDefault })
+    #expect(beta.map { ($0.path as NSString).lastPathComponent } == ["com.example.AppBeta.plist", "com.example.AppBetaHelper"])
+    // With AppBeta gone too, its leftovers show up, labelled as a prefix match.
+    #expect(alone.filter { $0.match == .bundleIDPrefix }.count == 3)
+}
+
+@Test func directlyInLibraryOnlyTheBundleIDOrTheExactNameCounts() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let lib = "home/Library/"
+    let own = try fx.folder(lib + "Roblox")                              // exact name
+    let byID = try fx.file(lib + "com.roblox.RobloxPlayer.plist")        // bundle ID
+    try fx.folder(lib + "RobloxFanClub")                                 // only fuzzy: not here
+    try fx.folder(lib + "com.roblox.studio.shared")                      // fuzzy, even shaped like a bundle ID: not here
+    try fx.folder(lib + "Developer")                                     // macOS's own (Xcode's simulators, builds)
+    try fx.folder(lib + "Fonts")
+    try fx.folder(lib + "Keychains")
+    try fx.folder(lib + "com.apple.Roblox")                              // Apple's: never by name
+    try fx.folder(lib + "Caches/RobloxFanClub")                          // fuzzy is fine in the usual places
+
+    let found = Leftovers.find(bundleID: "com.roblox.RobloxPlayer", names: ["Roblox", "RobloxPlayer"], home: fx.home,
+                               temp: [], others: [])
+    // An app called Developer, Fonts or Keychains still never gets macOS's own folders.
+    let named = Leftovers.find(bundleID: "com.example.dev", names: ["Developer", "Fonts", "Keychains"], home: fx.home,
+                               temp: [], others: [])
+
+    #expect(Set(found.map(\.path)) == [own, byID, fx.home + "/Library/Caches/RobloxFanClub"])
+    #expect(found.first { $0.path == own }?.match == .name)
+    #expect(named.isEmpty)
+    #expect(Leftovers.macOSFolderNames.isSuperset(of: ["developer", "fonts", "keychains", "weather", "frameworks"]))
+}
+
+@Test func inTheTempAndCacheFoldersFuzzyOnlyCountsForNamesShapedLikeABundleID() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let temp = [fx.root + "/T", fx.root + "/C"]
+    let byName = try fx.folder("T/Roblox")
+    let byID = try fx.folder("T/com.roblox.RobloxPlayer")
+    let webKit = try fx.folder("T/com.apple.WebKit.GPU+com.roblox.RobloxPlayer")
+    let cache = try fx.folder("C/com.roblox.RobloxPlayer.MenuBar")
+    let installer = try fx.folder("C/com.roblox.RobloxPlayerInstaller")   // by prefix
+    let lock = try fx.file("T/com.roblox.player.installer.lock")         // fuzzy, but shaped like a bundle ID
+    try fx.folder("T/RobloxTemp")                                         // fuzzy and a plain name: not here
+    try fx.folder("T/com.apple.WebKit.GPU+com.apple.Safari")
+    try fx.folder("T/com.apple.roblox.agent")                             // Apple's: never by name
+    try fx.folder("T/TemporaryItems")
+
+    let found = Leftovers.find(bundleID: "com.roblox.RobloxPlayer", names: ["Roblox", "RobloxPlayer"], home: fx.home,
+                               temp: temp, others: [])
+
+    #expect(Set(found.map(\.path)) == [byName, byID, webKit, cache, installer, lock])
+    #expect(found.first { $0.path == installer }?.match == .bundleIDPrefix)
+    #expect(found.first { $0.path == lock }?.match == .fuzzy)
+    #expect(found.first { $0.path == lock }?.checkedByDefault == false)
+    #expect(Leftovers.locations(home: fx.home, temp: temp).suffix(3) == [fx.home + "/Library"] + temp)
+}
+
 @Test func whatASecondCopyOrAnAppByTheSameNameUsesStays() throws {
     let fx = try Fixture()
     defer { fx.remove() }
@@ -207,6 +299,18 @@ private func other(_ bundleID: String?, at path: String, name: String? = nil, ex
     #expect(nightly.map { ($0.path as NSString).lastPathComponent } == ["org.mozilla.nightly"])
     #expect(beta.isEmpty)
     #expect(alone.map { ($0.path as NSString).lastPathComponent } == ["org.mozilla.nightly", "Firefox"])
+}
+
+@Test func privacyResetsOnlyForAnAppWithItsOwnBundleID() {
+    let app = other("com.roblox.RobloxPlayer", at: "/Applications/Roblox.app")
+    #expect(Tccutil.reset(for: app, others: []) == RemovalPlan.PrivacyReset(app: app.path, name: "Roblox",
+                                                                            bundleID: "com.roblox.RobloxPlayer"))
+    #expect(Tccutil.reset(for: other(nil, at: "/Applications/NoID.app"), others: []) == nil)
+    #expect(Tccutil.reset(for: other("-rf", at: "/Applications/Odd.app"), others: []) == nil)
+    #expect(Tccutil.reset(for: other("com.example.a b", at: "/Applications/Odd.app"), others: []) == nil)
+    // A second copy has the same bundle ID: resetting would take its permissions too.
+    #expect(Tccutil.reset(for: app, others: [other("com.roblox.robloxplayer", at: "/Users/x/Applications/Roblox.app")]) == nil)
+    #expect(Tccutil.reset("com.roblox.RobloxPlayer") == ["reset", "All", "com.roblox.RobloxPlayer"])
 }
 
 @Test func anAppsOwnHelpersAreNoOtherApps() {

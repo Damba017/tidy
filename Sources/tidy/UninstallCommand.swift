@@ -128,11 +128,13 @@ private func uninstallApps(_ apps: [App], dryRun: Bool, interactive: Bool, note:
         return true
     }
 
-    // Ticked fuzzy matches get their own block and question in the plan.
+    // Ticked fuzzy matches get their own block and question in the plan, and so does resetting the privacy
+    // permissions of each app that goes (only when it does; the plan drops the others).
     let fuzzyLabel = Leftover.Match.fuzzy.label
     let fuzzy = list.groups.flatMap { $0.items.filter { $0.label == fuzzyLabel }.map(\.path) }
+    let resets = apps.compactMap { Tccutil.reset(for: $0, others: Leftovers.otherApps(than: $0)) }
     show("")
-    let result = Remover.run(RemovalPlan(paths: selected, doubtful: .fuzzy(fuzzy)), dryRun: dryRun,
+    let result = Remover.run(RemovalPlan(paths: selected, doubtful: .fuzzy(fuzzy), privacy: resets), dryRun: dryRun,
                              say: show, ask: ask, choose: choose)
     return result.failed == 0
 }

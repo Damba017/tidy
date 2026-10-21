@@ -16,6 +16,11 @@ public enum Denylist {
             let treeLower = tree.lowercased()
             if lower == treeLower || lower.hasPrefix(treeLower + "/") {
                 if tree == "/usr" && (lower == "/usr/local" || lower.hasPrefix("/usr/local/")) { continue }
+                // What's inside your own temp and cache folders may go; those two folders themselves stay.
+                if tree == "/private/var", !path.split(separator: "/").contains(".."),
+                   Paths.userTempFolders.contains(where: { lower.hasPrefix($0.lowercased() + "/") }) {
+                    continue
+                }
                 return why
             }
             if treeLower.hasPrefix(lower + "/") { return "contains \(Paths.display(tree))" }
@@ -44,7 +49,7 @@ public enum Denylist {
             ("/dev", "devices"),
             ("/private/etc", "system configuration"),
             ("/private/var/db", "system databases"),
-            ("/private/var", "macOS system data"),  // temp files of running apps, root's home, logs, …
+            ("/private/var", "macOS system data"),  // root's home, logs, …; except inside your own temp and cache folders
             ("/Library/Apple", "Apple system files"),
             ("/Library/Keychains", "system keychains"),
             ("/Library/Preferences/SystemConfiguration", "network settings"),

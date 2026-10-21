@@ -107,15 +107,16 @@ private func formula(_ name: String) -> Candidate {
     Candidate(package: BrewPackage(name: name, kind: .formula, apps: []))
 }
 
-/// Runs BrewFlow with fakes for brew, the questions and the safety core. macOS's own tools: the fixture's bin/.
+/// Runs BrewFlow with fakes for brew, the questions and the safety core. macOS's own tools: the fixture's bin/;
+/// the temp and cache folders: its T/ and C/. `processes`: the executables of what's running.
 private func flow(_ candidate: Candidate, in fx: Fixture, _ t: Transcript, _ brew: FakeBrew, dryRun: Bool = false,
-                  others: [App] = []) -> Bool {
+                  others: [App] = [], processes: [String] = []) -> Bool {
     BrewFlow.run(
-        candidate, dryRun: dryRun, say: t.say, ask: t.ask, home: fx.home, toolFolders: [fx.root + "/bin"],
-        others: others, query: brew.query, brew: brew.run,
+        candidate, dryRun: dryRun, say: t.say, ask: t.ask, home: fx.home, temp: [fx.root + "/T", fx.root + "/C"],
+        toolFolders: [fx.root + "/bin"], others: others, processes: processes, query: brew.query, brew: brew.run,
         remove: { plan in
             _ = Remover.run(plan, dryRun: dryRun, say: t.say, ask: t.ask, choose: t.choose, log: fx.log, sudo: t.sudo,
-                            launchctl: t.launchctl, trashItem: fx.trash)
+                            launchctl: t.launchctl, tccutil: t.tccutil, trashItem: fx.trash)
         })
 }
 
@@ -221,6 +222,29 @@ private func flow(_ candidate: Candidate, in fx: Fixture, _ t: Transcript, _ bre
     #expect(!Paths.exists(own))
     #expect(Paths.exists(beta))
     #expect(fx.trashed() == ["com.example.tidytest"])
+}
+
+@Test func tempFilesOfAToolThatStillRunsStay() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let temp = try fx.folder("T/tidytesttool")
+    let cache = try fx.folder("C/tidytesttool")
+    let config = try fx.folder("home/.config/tidytesttool")
+    let t = Transcript()
+    t.answer = true
+
+    // A server of the formula still runs (its binary may already be gone): it uses its temp files.
+    #expect(flow(formula("tidytesttool"), in: fx, t, FakeBrew(), processes: ["/opt/homebrew/Cellar/x/bin/TidyTestTool"]))
+
+    #expect(t.lines.contains { $0.hasPrefix("Kept ") && $0.hasSuffix("tidytesttool is still running (/opt/homebrew/Cellar/x/bin/TidyTestTool).") })
+    #expect(Paths.exists(temp) && Paths.exists(cache))
+    #expect(!Paths.exists(config))
+
+    // Once it's stopped, they're leftovers like the rest.
+    let again = Transcript()
+    again.answer = true
+    #expect(flow(formula("tidytesttool"), in: fx, again, FakeBrew()))
+    #expect(!Paths.exists(temp) && !Paths.exists(cache))
 }
 
 @Test func macOSOwnToolsAreFound() {

@@ -11,8 +11,9 @@ public enum BrewFlow {
         ask: (String) -> Bool,
         choose: (String) -> Remover.Choice
     ) -> Bool {
-        run(candidate, dryRun: dryRun, say: say, ask: ask, home: Paths.home, toolFolders: Leftovers.macOSToolFolders,
-            others: Leftovers.otherApps(than: candidate.app), query: Brew.query, brew: Brew.run,
+        run(candidate, dryRun: dryRun, say: say, ask: ask, home: Paths.home, temp: Paths.userTempFolders,
+            toolFolders: Leftovers.macOSToolFolders, others: Leftovers.otherApps(than: candidate.app),
+            processes: RunningApps.processPaths(), query: Brew.query, brew: Brew.run,
             remove: { plan in _ = Remover.run(plan, dryRun: dryRun, say: say, ask: ask, choose: choose) })
     }
 
@@ -23,8 +24,10 @@ public enum BrewFlow {
         say: (String) -> Void,
         ask: (String) -> Bool,
         home: String,
+        temp: [String],
         toolFolders: [String],
         others: [App],
+        processes: [String],
         query: ([String]) -> String,
         brew: ([String]) -> Int32,
         remove: (RemovalPlan) -> Void
@@ -69,15 +72,22 @@ public enum BrewFlow {
             say("Kept \(kept.map(Paths.display).joined(separator: ", ")): macOS's own \(package.name) "
                 + "(\(macOSTool)) uses \(kept.count == 1 ? "it" : "them") too.")
         }
-        let notSearched = Leftovers.unreadable(Leftovers.locations(home: home))
+        let notSearched = Leftovers.unreadable(Leftovers.locations(home: home, temp: temp))
         if !notSearched.isEmpty {
             say("Not searched, so leftovers in there can't be found:")
             notSearched.forEach { say(Output.folderLine($0.path) + "  (\($0.reason))") }
         }
         // The cask's app (and so its bundle ID) came from before the uninstall, so it still counts.
-        let leftovers = Leftovers.merge(
+        var leftovers = Leftovers.merge(
             (macOSTool == nil ? dotfiles : [])
-                + Leftovers.find(bundleID: candidate.app?.bundleID, names: candidate.names, home: home, others: others))
+                + Leftovers.find(bundleID: candidate.app?.bundleID, names: candidate.names, home: home, temp: temp, others: others))
+        // A program of that name still running (a formula's server, say) uses its temp files: they stay.
+        let inTemp = leftovers.filter { leftover in temp.contains { leftover.path.hasPrefix($0 + "/") } }
+        if let running = processes.first(where: { ($0 as NSString).lastPathComponent.lowercased() == package.name.lowercased() }),
+           !inTemp.isEmpty {
+            say("Kept \(inTemp.map(\.path).map(Paths.display).joined(separator: ", ")): \(package.name) is still running (\(running)).")
+            leftovers.removeAll { leftover in inTemp.contains { $0.path == leftover.path } }
+        }
         guard !leftovers.isEmpty else {
             say("No \(kept.isEmpty ? "" : "other ")leftovers found for \(package.name).")
             return true

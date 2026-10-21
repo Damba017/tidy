@@ -44,13 +44,23 @@ final class Transcript {
         events.append("launchctl " + arguments.joined(separator: " "))
         return 0
     }
+
+    var tccutilCalls: [[String]] = []
+    var tccutilResult: (status: Int32, message: String) = (0, "")
+
+    /// Stands in for tccutil: records the command and runs nothing.
+    func tccutil(_ arguments: [String]) -> (status: Int32, message: String) {
+        tccutilCalls.append(arguments)
+        events.append("tccutil " + arguments.joined(separator: " "))
+        return tccutilResult
+    }
 }
 
-/// Runs the remover inside a fixture: fake Trash, fake sudo, fake launchctl, log in the fixture.
+/// Runs the remover inside a fixture: fake Trash, fake sudo, fake launchctl and tccutil, log in the fixture.
 func run(_ plan: RemovalPlan, in fx: Fixture, _ t: Transcript, dryRun: Bool = false) -> RemovalResult {
     Remover.run(
         plan, dryRun: dryRun, say: t.say, ask: t.ask, choose: t.choose, log: fx.log, sudo: t.sudo, launchctl: t.launchctl,
-        trashItem: { path in
+        tccutil: t.tccutil, trashItem: { path in
             t.events.append("trash " + path)
             return try fx.trash(path)
         })
@@ -244,7 +254,7 @@ func run(_ plan: RemovalPlan, in fx: Fixture, _ t: Transcript, dryRun: Bool = fa
 
     let result = Remover.run(
         RemovalPlan(paths: [container], home: fx.home), dryRun: false, say: t.say, ask: t.ask, choose: t.choose,
-        log: fx.log, sudo: t.sudo, launchctl: t.launchctl, trashItem: { _ in throw denied })
+        log: fx.log, sudo: t.sudo, launchctl: t.launchctl, tccutil: t.tccutil, trashItem: { _ in throw denied })
 
     #expect(result.failed == 1)
     #expect(t.lines.contains("    FAILED  com.example.app: no permission (macOS protects it; Full Disk Access may help)"))
@@ -554,6 +564,106 @@ func run(_ plan: RemovalPlan, in fx: Fixture, _ t: Transcript, dryRun: Bool = fa
     #expect(Paths.exists(plist))
 }
 
+// MARK: - Privacy permissions (tccutil), with the fake tccutil
+
+private func reset(_ app: String) -> RemovalPlan.PrivacyReset {
+    RemovalPlan.PrivacyReset(app: app, name: "Foo", bundleID: "com.example.foo")
+}
+
+@Test func privacyResetIsAskedAfterTheYesAndRunsRightBeforeTheAppGoes() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let app = try fx.file("apps/Foo.app/Contents/Info.plist").replacingOccurrences(of: "/Contents/Info.plist", with: "")
+    let cache = try fx.folder("home/Library/Caches/com.example.foo")
+    let t = Transcript()
+    t.answer = true
+
+    let plan = RemovalPlan(paths: [app, cache], privacy: [reset(app)], home: fx.home)
+    #expect(plan.render().contains("Privacy permissions, asked separately (macOS forgets what the app may access): 1 app"))
+    #expect(plan.render().contains { $0.hasSuffix("  Foo  (tccutil reset All com.example.foo)") })
+    let result = run(plan, in: fx, t)
+
+    #expect(t.questions == ["Move 2 items, \(Size.format(plan.items.reduce(0) { $0 + $1.size })) to the Trash?",
+                            "Also reset the privacy permissions of Foo (tccutil reset All com.example.foo)?"])
+    #expect(t.events == ["tccutil reset All com.example.foo", "trash \(app)", "trash \(cache)"])
+    #expect(t.lines.contains("    reset   privacy permissions of Foo"))
+    #expect(t.lines.firstIndex(of: "    reset   privacy permissions of Foo")! > t.lines.firstIndex(of: "    moved   Foo.app")!)
+    #expect(result.moved == 2 && result.failed == 0)
+    // The log has it too, in the order it happened: the reset, then the app.
+    let log = try String(contentsOfFile: fx.log.path, encoding: .utf8).split(separator: "\n").map { $0.split(separator: "\t").dropFirst() }
+    #expect(log.first.map(Array.init) == ["reset", "-", Substring(app), "privacy permissions: tccutil reset All com.example.foo", "sudo=no"])
+    #expect(log.dropFirst().first?.prefix(1) == ["moved"])
+}
+
+@Test func noPrivacyResetWithoutItsOwnYesOrWhenTheAppStays() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let app = try fx.folder("apps/Foo.app")
+    let cache = try fx.folder("home/Library/Caches/com.example.foo")
+
+    let no = Transcript()
+    no.answers = [true, false]  // move: yes, reset: no
+    _ = run(RemovalPlan(paths: [app], privacy: [reset(app)], home: fx.home), in: fx, no)
+    #expect(no.tccutilCalls.isEmpty)
+    #expect(!Paths.exists(app))
+
+    // The app wasn't ticked: nothing to reset, nothing asked.
+    let unticked = Transcript()
+    unticked.answer = true
+    let plan = RemovalPlan(paths: [cache], privacy: [reset(app)], home: fx.home)
+    #expect(plan.privacy.isEmpty)
+    _ = run(plan, in: fx, unticked)
+    #expect(unticked.questions.count == 1 && unticked.tccutilCalls.isEmpty)
+}
+
+@Test func noPrivacyResetWhenTheMoveIsDeclinedOrInADryRun() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let app = try fx.folder("apps/Foo.app")
+    let plan = RemovalPlan(paths: [app], privacy: [reset(app)], home: fx.home)
+
+    let dry = Transcript()
+    _ = run(plan, in: fx, dry, dryRun: true)
+    #expect(dry.questions.isEmpty && dry.events.isEmpty)
+    #expect(dry.lines.contains("--dry-run: would run tccutil reset All com.example.foo after its own yes."))
+
+    let declined = Transcript()  // N to the move: the reset isn't even asked
+    _ = run(plan, in: fx, declined)
+    #expect(declined.questions.count == 1 && declined.events.isEmpty)
+    #expect(Paths.exists(app))
+}
+
+@Test func aFailedPrivacyResetSaysWhatTccutilSaid() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let app = try fx.folder("apps/Foo.app")
+    let t = Transcript()
+    t.answer = true
+    t.tccutilResult = (1, "tccutil: No such bundle identifier \"com.example.foo\"")
+
+    let result = run(RemovalPlan(paths: [app], privacy: [reset(app)], home: fx.home), in: fx, t)
+
+    #expect(t.lines.contains("    FAILED  privacy permissions of Foo: tccutil: No such bundle identifier \"com.example.foo\""))
+    #expect(result.moved == 1 && result.failed == 1)
+    let log = try String(contentsOfFile: fx.log.path, encoding: .utf8)
+    #expect(log.contains("\tfailed\t-\t\(app)\tprivacy permissions: tccutil reset All com.example.foo: tccutil: No such bundle identifier"))
+}
+
+@Test func privacyResetForAnAppThatNeedsSudoRunsBeforeTheSudoMove() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let app = try fx.folder("apps/Foo.app")
+    try fx.folder("home/.Trash")
+    let t = Transcript()
+    t.answer = true
+
+    _ = run(RemovalPlan(items: [.init(path: app, size: 10, status: .sudo)], home: fx.home, privacy: [reset(app)]), in: fx, t)
+
+    #expect(t.questions == ["\(app) (10 B) needs administrator rights (sudo). Continue?",
+                            "Also reset the privacy permissions of Foo (tccutil reset All com.example.foo)?"])
+    #expect(t.events == ["sudo -v", "tccutil reset All com.example.foo", "sudo -n /bin/mv -n -- \(app) \(fx.home)/.Trash/Foo.app"])
+}
+
 /// The only test that uses the real Trash: moves two tidy-test-* fixtures into ~/.Trash.
 /// Runs only with TIDY_TRASH_TESTS=1.
 @Test(.enabled(if: ProcessInfo.processInfo.environment["TIDY_TRASH_TESTS"] == "1"))
@@ -568,7 +678,7 @@ func realTrashMovesFixturesAndLogsThem() throws {
 
     let result = Remover.run(
         RemovalPlan(paths: [a, folder], home: fx.home), dryRun: false, say: t.say, ask: t.ask, choose: t.choose,
-        log: fx.log, sudo: t.sudo, launchctl: t.launchctl, trashItem: Trash.system)
+        log: fx.log, sudo: t.sudo, launchctl: t.launchctl, tccutil: t.tccutil, trashItem: Trash.system)
 
     #expect(result.moved == 2)
     #expect(!Paths.exists(a) && !Paths.exists(folder))

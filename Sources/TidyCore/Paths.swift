@@ -4,6 +4,16 @@ public enum Paths {
     public static let home = NSHomeDirectory()
     public static let logFile = home + "/.local/state/taydic/log"
 
+    /// The user's own temp and cache folders in /var/folders ($TMPDIR, and the C folder next to it),
+    /// normalized (/private/var/folders/…/T). Apps leave temp files and caches in there too.
+    public static let userTempFolders: [String] = [_CS_DARWIN_USER_TEMP_DIR, _CS_DARWIN_USER_CACHE_DIR].compactMap { name in
+        var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
+        guard confstr(name, &buffer, buffer.count) > 1 else { return nil }
+        let path = normalize(String(decoding: buffer.prefix { $0 != 0 }.map(UInt8.init(bitPattern:)), as: UTF8.self))
+        let isTempOrCache = ["T", "C"].contains((path as NSString).lastPathComponent)
+        return path.hasPrefix("/private/var/folders/") && isTempOrCache ? path : nil
+    }
+
     /// Absolute path with `~` expanded, trailing slashes dropped and symlinks in the
     /// parent folders resolved. The last component is never resolved: removing a symlink
     /// removes the link, never its target. Its case comes from the disk, though: on a

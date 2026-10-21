@@ -20,6 +20,18 @@ public enum RunningApps {
         }
     }
 
+    /// The executables of the running processes taydic may look at (your own, mostly), also plain programs
+    /// that aren't apps. Reads only.
+    public static func processPaths() -> [String] {
+        var pids = [pid_t](repeating: 0, count: Int(max(0, proc_listallpids(nil, 0))) + 64)
+        let count = proc_listallpids(&pids, Int32(pids.count * MemoryLayout<pid_t>.size))
+        var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))  // PROC_PIDPATHINFO_MAXSIZE
+        return pids.prefix(Int(max(0, count))).compactMap { pid in
+            guard pid > 0, proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
+            return String(decoding: buffer.prefix { $0 != 0 }.map(UInt8.init(bitPattern:)), as: UTF8.self)
+        }
+    }
+
     /// Asks every instance to quit and waits up to `timeout` seconds. True once they're all gone.
     public static func quit(_ app: App, timeout: TimeInterval = 15) -> Bool {
         let running = instances(of: app)

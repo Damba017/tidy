@@ -50,6 +50,29 @@ func ordinaryPathsMayBeOffered(path: String) {
     #expect(Denylist.reason(for: Paths.normalize(path)) == nil, "\(path) should be allowed")
 }
 
+@Test func onlyWhatsInsideYourOwnTempAndCacheFoldersMayGo() throws {
+    let folders = Paths.userTempFolders
+    #expect(folders.count == 2)
+    #expect(folders.allSatisfy { $0.hasPrefix("/private/var/folders/") })
+    #expect(folders.map { ($0 as NSString).lastPathComponent } == ["T", "C"])
+    let user = Paths.parent(folders[0])  // /private/var/folders/xx/…, which holds 0, C, T and X
+    // Only names are checked here: none of these exist, and nothing is moved.
+    for folder in folders {
+        #expect(Denylist.reason(for: folder + "/com.example.tidy-test-nothing-here") == nil)
+        #expect(Denylist.reason(for: folder + "/tidy-test/inside") == nil)
+        #expect(Denylist.reason(for: folder) != nil, "\(folder) itself stays")
+        #expect(Denylist.reason(for: folder.replacingOccurrences(of: "/private/var/", with: "/var/") + "/tidy-test-x") == nil)
+    }
+    for path in [
+        user, user + "/0/tidy-test-x", user + "/X/tidy-test-x", "/private/var/folders", "/private/var/folders/zz",
+        "/private/var/folders/zz/someone-else/T/tidy-test-x", folders[0] + "/../0/tidy-test-x", folders[0] + "/../X",
+        folders[0] + "/tidy-test-not-there/../../0/x",  // can't be resolved, so it can't sneak out of T either
+        "/private/var/db/tidy-test-x", "/private/var/root",
+    ] {
+        #expect(Denylist.reason(for: Paths.normalize(path)) != nil, "\(path) should be protected")
+    }
+}
+
 @Test func onlyFirmlinkedDataVolumePathsAreMapped() {
     // Firmlinked folders are the same file on both sides.
     #expect(Paths.normalize("/System/Volumes/Data/Users") == "/Users")

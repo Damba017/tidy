@@ -19,7 +19,8 @@ func runLeftovers(name: String?, dryRun: Bool) -> Int32 {
     let candidates = Candidates.all()
     let apps = Leftovers.otherApps(than: nil) + LeftoverSearch.macOSApps()  // installed, running and macOS's own
     if let installed = LeftoverSearch.stillInstalled(name, candidates: candidates, apps: apps,
-                                                     commandFolders: LeftoverSearch.commandFolders) {
+                                                     commandFolders: LeftoverSearch.commandFolders,
+                                                     processes: RunningApps.processPaths()) {
         show("")
         show("\(name) is still installed: \(installed.what).")
         show(installed.byUninstall

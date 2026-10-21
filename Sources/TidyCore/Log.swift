@@ -3,6 +3,7 @@ import Foundation
 /// Append-only record of every removal, one tab-separated line each:
 /// `time  moved|failed  size  original path  where it went (or the error)  sudo=yes|no`.
 /// Items moved with sudo have no Finder "Put Back", so this is how to find where they came from.
+/// A privacy reset gets a line too: `time  reset  -  the app  privacy permissions: tccutil reset All <id>  sudo=no`.
 public struct Log: Sendable {
     public let path: String
     public static let standard = Log(path: Paths.logFile)
@@ -17,6 +18,11 @@ public struct Log: Sendable {
 
     func failed(_ original: String, error: String, sudo: Bool) throws {
         try append(["failed", "-", original, error, "sudo=\(sudo ? "yes" : "no")"])
+    }
+
+    /// The app's privacy permissions were reset (revoked): `what` says how.
+    func reset(_ app: String, _ what: String) throws {
+        try append(["reset", "-", app, what, "sudo=no"])
     }
 
     private func append(_ fields: [String]) throws {

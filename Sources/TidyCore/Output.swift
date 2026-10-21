@@ -23,10 +23,11 @@ public enum Output {
         return "  " + shown + (shown.hasSuffix("/") ? "" : "/")
     }
 
-    /// `line` with taydic's colours: "moved" and "quit" green, "FAILED" red, folder lines dim and
+    /// `line` with taydic's colours: "moved", "reset" and "quit" green, "FAILED" red, folder lines dim and
     /// headers ("Move to the Trash: 4 items, 45 KB", "Found 1:") bold. Everything else as is.
     public static func colored(_ line: String) -> String {
-        for (word, color) in [("    moved ", green), ("  quit ", green), ("    FAILED ", red)] where line.hasPrefix(word) {
+        for (word, color) in [("    moved ", green), ("    reset ", green), ("  quit ", green), ("    FAILED ", red)]
+        where line.hasPrefix(word) {
             let indent = String(word.prefix { $0 == " " })
             let name = String(word.dropFirst(indent.count).dropLast())
             return indent + color + name + reset + String(line.dropFirst(indent.count + name.count))

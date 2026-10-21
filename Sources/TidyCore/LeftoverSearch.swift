@@ -15,11 +15,12 @@ public enum LeftoverSearch {
     }
 
     /// Where `name` is still installed, if anywhere: an app or Homebrew package going by exactly that name
-    /// (or with it as bundle ID), another app on this Mac that does (macOS's own, a running one), or a
-    /// command of that name in `commandFolders`. Its files are in use then. `byUninstall`: it's one
-    /// `taydic uninstall` can remove, with what it left behind.
-    public static func stillInstalled(_ name: String, candidates: [Candidate], apps: [App], commandFolders: [String])
-        -> (what: String, byUninstall: Bool)? {
+    /// (or with it as bundle ID), another app on this Mac that does (macOS's own, a running one), a
+    /// command of that name in `commandFolders`, or a running program of that name among `processes`
+    /// (their executables; e.g. a helper whose app is already gone). Its files are in use then, its temp
+    /// files too. `byUninstall`: it's one `taydic uninstall` can remove, with what it left behind.
+    public static func stillInstalled(_ name: String, candidates: [Candidate], apps: [App], commandFolders: [String],
+                                      processes: [String]) -> (what: String, byUninstall: Bool)? {
         let lower = name.trimmingCharacters(in: .whitespaces).lowercased()
         let installed = candidates.first { candidate in
             candidate.names.contains { $0.lowercased() == lower } || candidate.app?.bundleID?.lowercased() == lower
@@ -28,8 +29,10 @@ public enum LeftoverSearch {
         if let app = apps.first(where: { $0.names.contains { $0.lowercased() == lower } || $0.bundleID?.lowercased() == lower }) {
             return ("\(app.name) (\(app.path))", false)
         }
-        return commandFolders.map { $0 + "/" + lower }.first { FileManager.default.isExecutableFile(atPath: $0) }
-            .map { ($0, false) }
+        if let command = commandFolders.map({ $0 + "/" + lower }).first(where: { FileManager.default.isExecutableFile(atPath: $0) }) {
+            return (command, false)
+        }
+        return processes.first { ($0 as NSString).lastPathComponent.lowercased() == lower }.map { ("a running program (\($0))", false) }
     }
 
     /// Installed or running apps and packages with `name` in their name or bundle ID (Discord PTB for "discord",
@@ -58,24 +61,24 @@ public enum LeftoverSearch {
         return (path + ["/opt/homebrew/bin", Paths.home + "/.local/bin"]).filter { $0.hasPrefix("/") }
     }
 
-    /// What's left of `name`: in the Library folders `taydic uninstall` looks in (by name, or fuzzy) and the
-    /// dotfiles a command-line tool leaves (~/.config/<name>, …). What another app on this Mac claims, by
-    /// bundle ID or by name, is left out, and so are dotfiles macOS's own tool of that name uses.
-    public static func find(_ name: String, home: String = Paths.home, others: [App]) -> [Leftover] {
-        find(name, home: home, toolFolders: Leftovers.macOSToolFolders, others: others)
+    /// What's left of `name`: in the folders `taydic uninstall` looks in (by name, or fuzzy where that counts)
+    /// and the dotfiles a command-line tool leaves (~/.config/<name>, …). What another app on this Mac claims,
+    /// by bundle ID or by name, is left out, and so are dotfiles macOS's own tool of that name uses.
+    public static func find(_ name: String, others: [App]) -> [Leftover] {
+        find(name, home: Paths.home, temp: Paths.userTempFolders, toolFolders: Leftovers.macOSToolFolders, others: others)
     }
 
-    static func find(_ name: String, home: String, toolFolders: [String], others: [App]) -> [Leftover] {
+    static func find(_ name: String, home: String, temp: [String], toolFolders: [String], others: [App]) -> [Leftover] {
         let name = name.trimmingCharacters(in: .whitespaces)
         guard problem(with: name) == nil else { return [] }
-        let library = Leftovers.find(bundleID: nil, names: [name], home: home, others: others)
+        let library = Leftovers.find(bundleID: nil, names: [name], home: home, temp: temp, others: others)
         // As spelled on disk: the user may type "Discord" for ~/.config/discord.
         let dotfiles = Leftovers.macOSTool(name, in: toolFolders) != nil ? []
             : Leftovers.dotfiles(for: name, home: home).map { Leftover(path: Paths.normalize($0.path), match: $0.match) }
         let theirIDs = others.compactMap(\.bundleID)
         return Leftovers.merge((library + dotfiles).filter { leftover in
             let entry = (leftover.path as NSString).lastPathComponent
-            return !theirIDs.contains { Leftovers.match(entry, bundleID: $0, names: []) == .bundleID }
+            return !theirIDs.contains { Leftovers.claims($0, entry) }
         })
     }
 }

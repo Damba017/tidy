@@ -40,17 +40,28 @@ public struct RemovalPlan: Sendable {
         }
     }
 
+    /// An app's privacy permissions (see `Tccutil`), reset right before the app goes, after their own yes.
+    public struct PrivacyReset: Sendable, Equatable {
+        /// The app bundle.
+        public let app: String
+        public let name: String
+        public let bundleID: String
+    }
+
     public let items: [Item]
     let home: String
     let doubt: Doubtful?
+    /// Only for apps that are in the plan and can be moved.
+    public let privacy: [PrivacyReset]
 
     /// `doubtful`: the paths among `paths` that are only a guess. They get their own block in the plan
     /// and their own question, so they never go along on the same "y" as the sure ones.
-    public init(paths: [String], doubtful: Doubtful? = nil) {
-        self.init(paths: paths, doubtful: doubtful, home: Paths.home)
+    /// `privacy`: apps among `paths` whose privacy permissions are offered for a reset.
+    public init(paths: [String], doubtful: Doubtful? = nil, privacy: [PrivacyReset] = []) {
+        self.init(paths: paths, doubtful: doubtful, privacy: privacy, home: Paths.home)
     }
 
-    init(paths: [String], doubtful: Doubtful? = nil, home: String) {
+    init(paths: [String], doubtful: Doubtful? = nil, privacy: [PrivacyReset] = [], home: String) {
         let notes = Dictionary((doubtful?.notes ?? [:]).map { (Paths.normalize($0.key), $0.value) }, uniquingKeysWith: { a, _ in a })
         let guesses = Set((doubtful?.paths ?? []).map(Paths.normalize))
         var seen = Set<String>()
@@ -73,13 +84,16 @@ public struct RemovalPlan: Sendable {
             }
             return false
         }
-        self.init(items: items, home: home, doubt: doubtful)
+        let movable = Set(items.filter { $0.status == .trash || $0.status == .sudo }.map(\.path))
+        let resets = privacy.map { PrivacyReset(app: Paths.normalize($0.app), name: $0.name, bundleID: $0.bundleID) }
+        self.init(items: items, home: home, doubt: doubtful, privacy: resets.filter { movable.contains($0.app) })
     }
 
-    init(items: [Item], home: String, doubt: Doubtful? = nil) {
+    init(items: [Item], home: String, doubt: Doubtful? = nil, privacy: [PrivacyReset] = []) {
         self.items = items
         self.home = home
         self.doubt = doubt
+        self.privacy = privacy
     }
 
     public func items(_ status: Status) -> [Item] {
@@ -130,6 +144,12 @@ public struct RemovalPlan: Sendable {
                 if let extra = item.note { note += "  (\(extra))" }
                 return "    " + Self.pad(Size.format(item.size)) + "  " + name + note
             }
+            lines.append("")
+        }
+        if !privacy.isEmpty {
+            lines.append("Privacy permissions, asked separately (macOS forgets what the app may access): "
+                + (privacy.count == 1 ? "1 app" : "\(privacy.count) apps"))
+            lines += privacy.map { "    " + Self.pad("") + "  " + $0.name + "  (tccutil reset All \($0.bundleID))" }
             lines.append("")
         }
         if !blocked.isEmpty {

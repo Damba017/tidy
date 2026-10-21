@@ -20,6 +20,8 @@ public enum Remover {
     /// - `choose` (all / one by one / none) for the doubtful items; after an N on one of them,
     ///   `choose` comes back for the ones that are left;
     /// - `ask` (y/N) once for everything that needs sudo.
+    /// Right after the yes that moves an app with a privacy reset in the plan: `ask` (y/N) for that reset,
+    /// which then runs right before the app goes (tccutil can't find the app once it's gone).
     /// `ask` returns true only for an explicit yes; `choose` returns `.none` for anything unclear.
     /// With `dryRun` it prints the plan and stops: no questions, no changes, no log.
     public static func run(
@@ -30,10 +32,10 @@ public enum Remover {
         choose: (String) -> Choice
     ) -> RemovalResult {
         run(plan, dryRun: dryRun, say: say, ask: ask, choose: choose, log: .standard, sudo: Sudo.run,
-            launchctl: Launchctl.run, trashItem: Trash.system)
+            launchctl: Launchctl.run, tccutil: Tccutil.run, trashItem: Trash.system)
     }
 
-    /// Same, with the log, sudo, launchctl and the final Trash move passed in. No defaults on purpose:
+    /// Same, with the log, sudo, launchctl, tccutil and the final Trash move passed in. No defaults on purpose:
     /// tests must name their fakes, so they can never reach the real ones by accident.
     static func run(
         _ plan: RemovalPlan,
@@ -44,6 +46,7 @@ public enum Remover {
         log: Log,
         sudo: ([String]) -> Int32,
         launchctl: ([String]) -> Int32,
+        tccutil: ([String]) -> (status: Int32, message: String),
         trashItem: (String) throws -> String
     ) -> RemovalResult {
         plan.render().forEach(say)
@@ -56,6 +59,9 @@ public enum Remover {
             return result
         }
         if dryRun {
+            for reset in plan.privacy {
+                say("--dry-run: would run tccutil \(Tccutil.reset(reset.bundleID).joined(separator: " ")) after its own yes.")
+            }
             say("--dry-run: nothing was changed.")
             return result
         }
@@ -95,6 +101,34 @@ public enum Remover {
             record { try log.failed(item.path, error: detail ?? reason, sudo: sudo) }
         }
 
+        // Privacy resets: asked right after the yes that moves the app (once per app), run right before it goes.
+        var resetAsked = Set<String>()
+        var resetApproved = Set<String>()
+        func offerReset(for items: [RemovalPlan.Item]) {
+            let resets = plan.privacy.filter { reset in !resetAsked.contains(reset.app) && items.contains { $0.path == reset.app } }
+            guard !resets.isEmpty else { return }
+            resetAsked.formUnion(resets.map(\.app))
+            let which = resets.count == 1
+                ? "\(resets[0].name) (tccutil reset All \(resets[0].bundleID))"
+                : "\(resets.map(\.name).joined(separator: ", ")) (tccutil reset All, per app)"
+            if ask("Also reset the privacy permissions of \(which)?") { resetApproved.formUnion(resets.map(\.app)) }
+        }
+        /// Runs the approved reset for `item` (never for a path the Trash would refuse); the line to show under it.
+        func resetPermissions(before item: RemovalPlan.Item) -> String? {
+            guard resetApproved.contains(item.path), let reset = plan.privacy.first(where: { $0.app == item.path }),
+                  Denylist.reason(for: item.path, home: plan.home) == nil else { return nil }
+            let command = "tccutil " + Tccutil.reset(reset.bundleID).joined(separator: " ")
+            let (status, message) = tccutil(Tccutil.reset(reset.bundleID))
+            if status == 0 {
+                record { try log.reset(reset.app, "privacy permissions: \(command)") }
+                return "    reset   privacy permissions of \(reset.name)"
+            }
+            result.failed += 1
+            let why = message.isEmpty ? "tccutil failed (exit \(status))" : message
+            record { try log.failed(reset.app, error: "privacy permissions: \(command): \(why)", sudo: false) }
+            return "    FAILED  privacy permissions of \(reset.name): " + why
+        }
+
         func moveToTrash(_ items: [RemovalPlan.Item]) {
             shownFolder = nil
             for item in items {
@@ -102,6 +136,7 @@ public enum Remover {
                 if Launchctl.domain(of: item.path) == .user, Denylist.reason(for: item.path, home: plan.home) == nil {
                     _ = launchctl(Launchctl.bootout(item.path, in: .user))
                 }
+                let reset = resetPermissions(before: item)
                 do {
                     moved(item, to: try Trash.move(item.path, home: plan.home, using: trashItem), sudo: false)
                 } catch let error as TidyError {
@@ -109,6 +144,7 @@ public enum Remover {
                 } catch {
                     failed(item, "\(error)", sudo: false)
                 }
+                reset.map(say)
             }
         }
         func total(_ items: [RemovalPlan.Item]) -> String {
@@ -119,6 +155,7 @@ public enum Remover {
         if !sure.isEmpty {
             askedBefore = true
             if ask("Move \(RemovalPlan.describe(sure)) to the Trash?") {
+                offerReset(for: sure)
                 moveToTrash(sure)
             } else {
                 say("Nothing moved to the Trash.")
@@ -160,6 +197,7 @@ public enum Remover {
                     }
                 }
             }
+            offerReset(for: approved)
             moveToTrash(approved.filter { $0.status == .trash })
             // They still get the sudo question below.
             root = RemovalPlan.byFolder(root + approved.filter { $0.status == .sudo })
@@ -177,6 +215,7 @@ public enum Remover {
                 ? "\(Paths.display(root[0].path)) (\(total(root))) needs administrator rights (sudo). Continue?"
                 : "These \(root.count) items need administrator rights (sudo). Continue?"
             if ask(question) {
+                offerReset(for: root)
                 let it = root.count == 1 ? ("it", "it") : ("them", "they")
                 say("sudo asks for your password once. \"Put Back\" won't work for \(it.0); the log says where \(it.1) came from.")
                 say("Emptying the Trash will ask for your password too.")
@@ -201,6 +240,7 @@ public enum Remover {
                         case .system: _ = sudo(["-n", "/bin/launchctl"] + Launchctl.bootout(item.path, in: .system))
                         case nil: break
                         }
+                        let reset = resetPermissions(before: item)
                         let status = sudo(Sudo.moveCommand(from: item.path, to: destination))
                         if status == 0 && !Paths.exists(item.path) && Paths.exists(destination) {
                             moved(item, to: destination, sudo: true)
@@ -210,6 +250,7 @@ public enum Remover {
                         } else {
                             failed(item, "sudo mv failed (exit \(status))", sudo: true)
                         }
+                        reset.map(say)
                     }
                 } else {
                     say("sudo failed: nothing was moved with sudo.")

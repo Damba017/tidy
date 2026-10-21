@@ -3,12 +3,13 @@ import Foundation
 public struct Leftover: Sendable, Equatable {
     /// How a leftover was matched to its app, strongest first.
     public enum Match: Int, Sendable, Comparable {
-        case bundleID, pkgReceipt, name, fuzzy
+        case bundleID, pkgReceipt, bundleIDPrefix, name, fuzzy
 
         public var label: String {
             switch self {
             case .bundleID: "bundle ID"
             case .pkgReceipt: "pkg receipt"
+            case .bundleIDPrefix: "bundle ID prefix"
             case .name: "name"
             case .fuzzy: "fuzzy"
             }
@@ -26,7 +27,13 @@ public struct Leftover: Sendable, Equatable {
 
 /// Finds what an app left behind in the Library folders and in its .pkg receipts.
 public enum Leftovers {
-    public static func locations(home: String = Paths.home) -> [String] {
+    /// Every folder leftovers are looked for in, one level deep. `temp`: the user's own temp and cache
+    /// folders (see `Paths.userTempFolders`).
+    public static func locations(home: String = Paths.home, temp: [String] = Paths.userTempFolders) -> [String] {
+        libraryLocations(home: home) + [home + "/Library"] + temp
+    }
+
+    static func libraryLocations(home: String) -> [String] {
         let user = [
             "Application Support", "Caches", "Preferences", "Preferences/ByHost", "Containers", "Group Containers",
             "Saved Application State", "HTTPStorages", "WebKit", "Logs", "LaunchAgents", "Cookies", "Application Scripts",
@@ -40,35 +47,76 @@ public enum Leftovers {
     /// Everything that belongs to `app`, strongest match first. Reads only.
     public static func find(for app: App) -> [Leftover] {
         let others = otherApps(than: app)
-        return merge(find(bundleID: app.bundleID, names: app.names, in: locations(), others: others)
+        return merge(find(bundleID: app.bundleID, names: app.names, home: Paths.home, temp: Paths.userTempFolders, others: others)
             + pkgLeftovers(for: app, others: others))
     }
 
-    /// The Library leftovers for something with this bundle ID (if any) and these names.
-    /// `others`: the other apps on this Mac (see `otherApps`).
-    public static func find(bundleID: String?, names: [String], home: String = Paths.home, others: [App]) -> [Leftover] {
-        find(bundleID: bundleID, names: names, in: locations(home: home), others: others)
+    /// The Library and temp leftovers for something with this bundle ID (if any) and these names.
+    /// `temp`: the user's temp and cache folders. `others`: the other apps on this Mac (see `otherApps`).
+    public static func find(bundleID: String?, names: [String], home: String, temp: [String], others: [App]) -> [Leftover] {
+        find(bundleID: bundleID, names: names, in: libraryLocations(home: home), strict: [home + "/Library"], temp: temp,
+             others: others)
     }
 
-    /// Looks one level deep in each of `locations`. What another app claims as well is left out:
-    /// with a longer bundle ID it's that app's (com.google.Chrome.canary, next to com.google.Chrome);
+    /// Looks one level deep in each of `locations`, `strict` and `temp`. In `strict` (~/Library itself, full of
+    /// macOS's own folders) only a bundle ID or the exact name counts, never a fuzzy match. In `temp` (the user's
+    /// temp and cache folders, full of every program's files) a fuzzy match counts only for a name shaped like a
+    /// bundle ID (com.roblox.player.installer.lock), never for a plain one. Neither ever offers a name of macOS's
+    /// own folders. What another app claims as well is left out: with a longer bundle ID it's that
+    /// app's (com.google.Chrome.canary next to com.google.Chrome, com.foo.AppBeta next to com.foo.App);
     /// with the same bundle ID (a second copy, Xcode-beta next to Xcode) or by the same name
     /// (Firefox Nightly is "firefox" too, in the same Application Support/Firefox) it's shared.
-    static func find(bundleID: String?, names: [String], in locations: [String], others: [App]) -> [Leftover] {
+    static func find(bundleID: String?, names: [String], in locations: [String], strict: [String] = [],
+                     temp: [String] = [], others: [App]) -> [Leftover] {
         let names = usableNames(names)
         let theirIDs = bundleID.map { id in others.compactMap(\.bundleID).filter { $0.count >= id.count } } ?? []
         let theirNames = usableNames(others.flatMap(\.names))
         var found: [Leftover] = []
-        for location in locations {
-            for entry in AppFinder.contents(of: location)
-            where !theirIDs.contains(where: { match(entry, bundleID: $0, names: []) == .bundleID }) {
+        for location in locations + strict + temp {
+            let isStrict = strict.contains(location)
+            let isTemp = temp.contains(location)
+            for entry in AppFinder.contents(of: location) where !theirIDs.contains(where: { claims($0, entry) }) {
                 guard let match = match(entry, bundleID: bundleID, names: names) else { continue }
+                if (isStrict || isTemp) && macOSFolderNames.contains(entry.lowercased()) { continue }
+                if match == .fuzzy && (isStrict || (isTemp && Junk.bundleID(in: entry) == nil)) { continue }
                 if match != .bundleID && Self.match(entry, bundleID: nil, names: theirNames) == .name { continue }
                 found.append(Leftover(path: location + "/" + entry, match: match))
             }
         }
         return merge(found)
     }
+
+    /// True when `entry` is named after `bundleID`: that ID itself, or it with more after it (com.foo.AppBeta
+    /// claims com.foo.AppBeta.plist and com.foo.AppBetaHelper).
+    static func claims(_ bundleID: String, _ entry: String) -> Bool {
+        let match = match(entry, bundleID: bundleID, names: [])
+        return match == .bundleID || match == .bundleIDPrefix
+    }
+
+    /// Names of macOS's own folders in ~/Library (and in /System/Library). An app with one of these names
+    /// never gets that folder: Apple's Developer app would otherwise take ~/Library/Developer (Xcode's
+    /// simulators and build files), an app called Weather or Photos would take macOS's own.
+    static let macOSFolderNames: Set<String> = {
+        let library = [
+            "Accessibility", "Accounts", "AppleMediaServices", "Application Scripts", "Application Support", "Assistant",
+            "Assistants", "Audio", "Autosave Information", "Biome", "Caches", "Calendars", "CallServices", "CloudStorage",
+            "ColorPickers", "ColorSync", "Colors", "Components", "Compositions", "Contacts", "ContainerManager",
+            "Containers", "Cookies", "CoreData", "CoreFollowUp", "Daemon Containers", "DataAccess",
+            "DataDeliveryServices", "Developer", "Dictionaries", "DoNotDisturb", "DuetExpertCenter", "Extensions",
+            "Favorites", "FileProvider", "Filters", "Finance", "FinanceBackup", "FontCollections", "Fonts",
+            "Fonts Disabled", "Frameworks", "FrontBoard", "GameController", "GameKit", "Group Containers",
+            "GroupContainersAlias", "HTTPStorages", "HomeKit", "IdentityServices", "Image Capture", "Input Methods",
+            "IntelligencePlatform", "Intents", "Internet Plug-Ins", "iTunes", "Keyboard", "Keyboard Layouts",
+            "KeyboardServices", "Keychains", "LanguageModeling", "LaunchAgents", "LockdownMode", "Logs", "Mail", "Maps",
+            "MediaAnalysis", "Messages", "Metadata", "Mobile Documents", "Music", "News", "Notes", "Passes", "PDF Services",
+            "PersonalizationPortrait", "Photos", "PPM", "PreferencePanes", "Preferences", "Printers",
+            "PrivateCloudCompute", "QuickLook", "Reminders", "ResponseKit", "Safari", "SafariSafeBrowsing",
+            "Saved Application State", "Saved Searches", "Screen Savers", "Scripts", "Services", "Sharing", "Shortcuts",
+            "Sounds", "Speech", "Spelling", "Spotlight", "StatusKit", "Stickers", "Suggestions", "SyncedPreferences",
+            "Translation", "Trial", "UnifiedAssetFramework", "VoiceTrigger", "Weather", "WebKit", "Workflows",
+        ]
+        return Set((library + AppFinder.contents(of: "/System/Library")).map { $0.lowercased() })
+    }()
 
     /// Folders among `folders` taydic can't look in, with why (mostly macOS privacy protection, e.g.
     /// ~/Library/Cookies without Full Disk Access). Leftovers in there can't be found, so the user hears
@@ -134,6 +182,20 @@ public enum Leftovers {
             if base == id || base.hasPrefix(id + ".") || base.hasSuffix("." + id) || base.contains("." + id + ".") {
                 return .bundleID
             }
+            // WebKit's temp folders for the app: com.apple.WebKit.WebContent+com.roblox.RobloxPlayer. Only the
+            // part after the + counts.
+            if lower.hasPrefix("com.apple.webkit."), let plus = lower.firstIndex(of: "+"),
+               match(String(lower[lower.index(after: plus)...]), bundleID: id, names: []) == .bundleID {
+                return .bundleID
+            }
+            // com.roblox.RobloxPlayerChannel: the bundle ID with more letters or digits right after it. That can
+            // be another app of the same maker (com.hnc.DiscordPTB), so it gets its own label. Never for Apple's
+            // names (com.apple.RemoteDesktopAgent is macOS's, not Remote Desktop's), and only for a bundle ID of
+            // three parts or more (com.foo + "bar" would be another maker).
+            if !lower.contains("com.apple."), id.split(separator: ".").count >= 3, base.hasPrefix(id),
+               let next = base.dropFirst(id.count).first, next.isASCII && (next.isLetter || next.isNumber) {
+                return .bundleIDPrefix
+            }
         }
         // Apple's own files only ever match through the app's bundle ID, also the ones that don't start with
         // com.apple. (group.com.apple.notes, 2BUA8C4S2C.com.apple.…).
@@ -190,7 +252,7 @@ public enum Leftovers {
             var folder = Paths.parent(path)
             while folder != "/" && folder.count > 1 {
                 let name = (folder as NSString).lastPathComponent
-                if let match = match(name, bundleID: app.bundleID, names: names), match != .fuzzy,
+                if let match = match(name, bundleID: app.bundleID, names: names), match == .bundleID || match == .name,
                    !others.contains(where: { $0.path.hasPrefix(folder + "/") }) {
                     keep = folder
                 }

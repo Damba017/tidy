@@ -23,8 +23,8 @@ The project is called *tidy*; the command is `taydic` ("taydi cleaner") because 
 - **Default is No.** Every question is `(y/N)`: Enter means no, and only `y` or `yes` counts. There is no `--yes`, and input that isn't a terminal answers no.
 - **Doubtful items are asked about separately.** Fuzzy name matches and orphans never go along on the same `y` as the sure items: `y = all · o = one by one · N = none`.
 - **Everything goes to the Trash**, never deleted. Items that need administrator rights are moved with `sudo mv` after one explicit question, and the log says where they came from.
-- **A denylist** keeps taydic away from macOS itself and from what matters most, whatever the matching says: `/System`, `/usr`, `/private/var`, keychains, Mail, Messages, iCloud Drive, your Photos library, `~/.ssh`, your home folder and the standard folders themselves, mount points, anything SIP-protected. It's checked when the plan is made and again right before every move.
-- **A log** of every move: `~/.local/state/taydic/log` (time, what, size, where it went in the Trash, whether sudo was used).
+- **A denylist** keeps taydic away from macOS itself and from what matters most, whatever the matching says: `/System`, `/usr`, `/private/var` (except what's inside your own temp and cache folders), keychains, Mail, Messages, iCloud Drive, your Photos library, `~/.ssh`, your home folder and the standard folders themselves, mount points, anything SIP-protected. It's checked when the plan is made and again right before every move.
+- **A log** of every move: `~/.local/state/taydic/log` (time, what, size, where it went in the Trash, whether sudo was used), and of every reset of an app's privacy permissions.
 
 ## Requirements
 
@@ -86,8 +86,10 @@ taydic junk caches --dry-run
 Give one or more names (`taydic uninstall discord firefox fastfetch`), or none for a list of everything installed: type to filter, space to select, Enter to continue.
 
 - It finds `.app` bundles in `/Applications`, `/Applications/Utilities` and `~/Applications`, and Homebrew formulae and casks. A cask's app is one item, removed through `brew`.
-- Leftovers are found by bundle ID, by name and, unticked and asked about separately, by fuzzy name match, in the usual `~/Library` and `/Library` folders and in `.pkg` receipts. What another installed app also uses (a second copy, a beta with the same bundle ID, an app by the same name) stays.
+- Leftovers are found by bundle ID, by name and, unticked and asked about separately, by fuzzy name match, in the usual `~/Library` and `/Library` folders and in `.pkg` receipts. A name that starts with the bundle ID (`com.roblox.RobloxPlayerChannel.plist`) is labelled *bundle ID prefix* and ticked. What another installed app also uses (a second copy, a beta with the same or a longer bundle ID, an app by the same name) stays.
+- Also directly in `~/Library` (`~/Library/Roblox`) and in your own temp and cache folders in `/var/folders` (`$TMPDIR`, where an app can leave hundreds of MB), but more strictly: by bundle ID or exact name, fuzzy never directly in `~/Library` and in the temp folders only for names shaped like a bundle ID (`com.roblox.player.installer.lock`), and never macOS's own folders (`~/Library/Developer`, `~/Library/Fonts`, …), whatever the app is called.
 - A running app is quit first (like ⌘Q), after you say yes.
+- After the yes that moves an app, taydic asks whether to reset its privacy permissions too (`tccutil reset All <bundle ID>`: what it was allowed to access, like your Downloads folder), so a new install asks again. That runs right before the app goes, because `tccutil` can't find an app that's already gone.
 - Homebrew packages are removed with `brew uninstall` (after a yes); their leftovers (`~/.config/<name>`, `~/.cache/<name>`, …) go to the Trash.
 
 ### `taydic disk`
@@ -96,9 +98,9 @@ Pick a volume (or give a folder) and browse it, biggest first: Enter opens a fol
 
 ### `taydic leftovers`
 
-For apps you removed before you had taydic (dragged to the Trash, say): `taydic leftovers discord` looks for what's left of it by name, in the same `~/Library` and `/Library` folders and in `~/.config/discord` and friends. Also in the menu, as option 4.
+For apps you removed before you had taydic (dragged to the Trash, say): `taydic leftovers discord` looks for what's left of it by name, in the same `~/Library`, `/Library` and temp folders and in `~/.config/discord` and friends. Also in the menu, as option 4.
 
-- Only for things that are gone: if an app, Homebrew package, macOS app or command by that name is still there, taydic says so and stops (its files are in use).
+- Only for things that are gone: if an app, Homebrew package, macOS app, command or running program by that name is still there, taydic says so and stops (its files are in use).
 - What another app on your Mac uses, by name or bundle ID, stays out. If an installed app has a name like it (Discord PTB for "discord", Google Chrome for "google"), taydic warns you and nothing starts ticked.
 - Exact name matches start ticked; names that only contain it are asked about separately.
 
@@ -120,6 +122,6 @@ swift build
 swift test
 ```
 
-All tests work on fixtures in `/tmp/tidy-test` with a fake home and a fake Trash; none of them touches your real Trash, sudo, launchctl or Homebrew. Two tests that do use the real Trash (with tiny test files only) run only with `TIDY_TRASH_TESTS=1`.
+All tests work on fixtures in `/tmp/tidy-test` with a fake home and a fake Trash; none of them touches your real Trash, sudo, launchctl, tccutil or Homebrew. Two tests that do use the real Trash (with tiny test files only) run only with `TIDY_TRASH_TESTS=1`.
 
 The code is split into `Sources/TidyCore` (all the logic, testable without a terminal) and `Sources/tidy` (arguments, prompts and the terminal UI). `Remover.swift` is the only place that removes anything.
