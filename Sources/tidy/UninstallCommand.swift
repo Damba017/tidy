@@ -107,6 +107,7 @@ private func uninstallApps(_ apps: [App], dryRun: Bool, interactive: Bool, note:
     let found = apps.map(group(for:))
     let list = ReviewList(groups: found.map(\.group))
     let privacyProtected = found.flatMap(\.privacyProtected)
+    let sipProtected = found.flatMap(\.sipProtected)
     let selected: [String]
     if interactive {
         Terminal.start()
@@ -122,6 +123,7 @@ private func uninstallApps(_ apps: [App], dryRun: Bool, interactive: Bool, note:
         if let note { print(note) }
         selected = list.selectedPaths
     }
+    showSIPNote(sipProtected)
     showPrivacyNotes(protected: privacyProtected, notSearched: Leftovers.unreadable(Leftovers.locations()))
     guard !selected.isEmpty else {
         print("Nothing selected; no apps were changed.")
@@ -140,18 +142,19 @@ private func uninstallApps(_ apps: [App], dryRun: Bool, interactive: Bool, note:
 }
 
 /// The app bundle plus everything it left behind, as one group of the review list.
-private func group(for app: App) -> (group: ReviewList.Group, privacyProtected: [String]) {
+private func group(for app: App) -> (group: ReviewList.Group, privacyProtected: [String], sipProtected: [String]) {
     reviewGroup(title: app.name, detail: "\(app.source.rawValue) · \(Paths.display(app.path))",
                 entries: [(app.path, "app", true)] + Leftovers.find(for: app).map { ($0.path, $0.match.label, $0.checkedByDefault) })
 }
 
 /// One group of the review list from these paths (shared by uninstall and leftovers).
 /// Protected or missing paths never make it into the list; the ones macOS privacy protection
-/// keeps taydic out of are returned separately so the user hears about them.
+/// keeps taydic out of, and the ones SIP protects, are returned separately so the user hears about them.
 func reviewGroup(title: String, detail: String, entries: [(path: String, label: String, checked: Bool)])
-    -> (group: ReviewList.Group, privacyProtected: [String]) {
+    -> (group: ReviewList.Group, privacyProtected: [String], sipProtected: [String]) {
     var items: [ReviewList.Item] = []
     var privacyProtected: [String] = []
+    var sipProtected: [String] = []
     for (path, label, checked) in entries {
         guard let planned = RemovalPlan(paths: [path]).items.first else { continue }
         switch planned.status {
@@ -160,11 +163,13 @@ func reviewGroup(title: String, detail: String, entries: [(path: String, label: 
                                          needsSudo: planned.status == .sudo, checked: checked))
         case .blocked(RemovalPlan.privacyReason):
             privacyProtected.append(planned.path)
+        case .blocked(Denylist.sipReason):
+            sipProtected.append(planned.path)
         case .blocked, .missing:
             break
         }
     }
-    return (ReviewList.Group(title: title, detail: detail, items: items), privacyProtected)
+    return (ReviewList.Group(title: title, detail: detail, items: items), privacyProtected, sipProtected)
 }
 
 /// Several candidates match `name`: let the user pick one by number.

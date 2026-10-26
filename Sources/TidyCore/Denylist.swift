@@ -34,9 +34,17 @@ public enum Denylist {
         }
         var st = stat()
         guard lstat(path, &st) == 0 else { return nil }
-        if st.st_flags & UInt32(SF_RESTRICTED) != 0 { return "protected by System Integrity Protection" }
+        if isSIPProtected(flags: st.st_flags) { return sipReason }
         if isVolumeRoot(path) { return "mount point" }
         return nil
+    }
+
+    public static let sipReason = "protected by System Integrity Protection"
+
+    /// SIP's flags: `restricted` (the system), and `sunlnk` (can't be moved or deleted, e.g. the
+    /// sandbox folders macOS makes in the temp folder, like `com.apple.WebKit.GPU+<bundle ID>`).
+    static func isSIPProtected(flags: UInt32) -> Bool {
+        flags & (UInt32(SF_RESTRICTED) | UInt32(SF_NOUNLINK)) != 0
     }
 
     /// Never removed, and nothing inside them either. Their parents are protected too.

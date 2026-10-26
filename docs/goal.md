@@ -91,6 +91,7 @@ For each name:
 5. Show the list with sizes, let him toggle items, then one final `y/N` (plus the separate fuzzy `y/N` above, if he ticked any).
    - A path to an app bundle (e.g. `~/Downloads/Foo.app`: a real folder ending in `.app` with an Info.plist) is accepted as a name and used as is. Any other path is refused ("Not an app …; skipped"), so no other folder is ever taken for an app.
    - Leftovers macOS privacy protection keeps taydic out of (EPERM, not root-owned) are not offered; they're listed afterwards with the Full Disk Access hint. sudo doesn't help there. A location taydic can't look in at all (`~/Library/Cookies` without Full Disk Access) is named there too, as "Not searched" (also in the brew flow).
+   - Leftovers System Integrity Protection keeps where they are (the `restricted` or `sunlnk` flag, e.g. `com.apple.WebKit.GPU+<bundle ID>` in his temp folder) are not offered either; they're named right before that note: "Not in the list: protected by System Integrity Protection, nothing can move these:" (added 2026-10-26). The brew flow, which has no review list, shows them in its plan under *Protected*.
 6. **For brew packages** the flow is (this is the real output):
    ```
    $ taydic uninstall fastfetch

@@ -4,11 +4,11 @@ Read this first, every session. Update it in max 5 lines after each completed pl
 
 ## Last step
 
-2026-10-21: moved the 323-line `CLAUDE.md` into `docs/` (goal, plan, rules, progress, history, tools). `CLAUDE.md` is now ≤ 40 lines. Nothing lost, only moved. Not committed yet: waiting for Damba to look at it.
+2026-10-26: Damba's real Roblox uninstall: 18 moved, 1 FAILED (`$TMPDIR/com.apple.WebKit.GPU+com.roblox.RobloxPlayer`, SIP flag `sunlnk`). The denylist now refuses `sunlnk` too; such items aren't in the list, a note after it names them ("Not in the list: protected by System Integrity Protection"). 134 tests. Damba tested the dry-runs (fake app in `/tmp/tidy-test/sip-demo`, `uninstall marktplaats`); committed and pushed. Not installed: `~/.local/bin/taydic` is still 1.1.0.
 
 ## Next step
 
-Nothing planned. Wait for Damba's next idea, or for the Cleanup phase (`docs/plan.md`, phase 11).
+Install when Damba wants (ask which version). Then wait for his next idea, or for the Cleanup phase (`docs/plan.md`, phase 11).
 
 ## Open issues
 
@@ -17,7 +17,7 @@ Nothing planned. Wait for Damba's next idea, or for the Cleanup phase (`docs/pla
 
 ## Current state
 
-taydic **1.1.0** is installed as `~/.local/bin/taydic` (in his PATH), 133 tests, all pushed up to `940630a`. His Terminal has Full Disk Access since 2026-10-19; the Claude app doesn't.
+taydic **1.1.0** is installed as `~/.local/bin/taydic` (in his PATH). 134 tests, everything pushed, including the `sunlnk` change (not installed yet). His Terminal has Full Disk Access since 2026-10-19; the Claude app doesn't.
 
 ## Finished phases (one line each)
 

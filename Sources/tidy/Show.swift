@@ -8,6 +8,15 @@ func show(_ line: String) {
 
 private let useColor = isatty(STDOUT_FILENO) == 1 && (ProcessInfo.processInfo.environment["NO_COLOR"] ?? "").isEmpty
 
+/// What System Integrity Protection keeps where it is (e.g. `com.apple.WebKit.GPU+<bundle ID>` in the temp
+/// folder), so it's not in the list. Nothing when there's nothing to say.
+func showSIPNote(_ paths: [String]) {
+    guard !paths.isEmpty else { return }
+    show("")
+    show("Not in the list: protected by System Integrity Protection, nothing can move these:")
+    Output.grouped(paths) { _, name in "      " + name }.forEach(show)
+}
+
 /// What macOS privacy protection kept out of the list (`protected` items, and `notSearched` folders
 /// taydic couldn't look in at all), and how to let taydic in. Nothing when there's nothing to say.
 func showPrivacyNotes(protected: [String], notSearched: [(path: String, reason: String)] = []) {

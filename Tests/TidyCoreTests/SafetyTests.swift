@@ -122,6 +122,28 @@ func ordinaryPathsMayBeOffered(path: String) {
     #expect(st.st_flags & UInt32(SF_RESTRICTED) != 0)
 }
 
+@Test func noUnlinkFlagIsProtectedBySIP() {
+    // Only the system can set `sunlnk`, so the check is tested on its own and on a real folder that has it.
+    #expect(Denylist.isSIPProtected(flags: UInt32(SF_NOUNLINK)))
+    #expect(Denylist.isSIPProtected(flags: UInt32(SF_RESTRICTED)))
+    #expect(!Denylist.isSIPProtected(flags: 0))
+    #expect(!Denylist.isSIPProtected(flags: UInt32(UF_IMMUTABLE) | UInt32(UF_HIDDEN)))  // his own flags: "locked", not SIP
+
+    // In no list of its own, so only the flag keeps it out (it used to land under sudo, and fail).
+    var st = stat()
+    #expect(lstat("/Library/Frameworks", &st) == 0)
+    #expect(st.st_flags & UInt32(SF_NOUNLINK) != 0)
+    #expect(Denylist.reason(for: "/Library/Frameworks") == "protected by System Integrity Protection")
+    let plan = RemovalPlan(paths: ["/Library/Frameworks"], home: Paths.home)
+    #expect(plan.items.map(\.status) == [.blocked("protected by System Integrity Protection")])
+
+    // A leftover SIP protects stays in the list, so the user hears it was left alone (the plan never moves it);
+    // other protected paths still drop out, /System/Library too although it has SIP's flag.
+    let leftovers = [Leftover(path: "/Library/Frameworks", match: .name), Leftover(path: "/System/Library", match: .name),
+                     Leftover(path: Paths.home + "/Library/Keychains", match: .name)]
+    #expect(Leftovers.merge(leftovers).map(\.path) == ["/Library/Frameworks"])
+}
+
 @Test func trashRefusesProtectedPathsInsideAFakeHome() throws {
     let fx = try Fixture()
     defer { fx.remove() }

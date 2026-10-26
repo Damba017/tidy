@@ -264,9 +264,12 @@ public enum Leftovers {
     }
 
     /// One entry per path (the strongest match), protected paths dropped, items inside other items dropped.
+    /// Except what SIP protects (`com.apple.WebKit.GPU+<bundle ID>` in the temp folder): nothing can move that,
+    /// but it stays so the user hears it was left alone. The plan never moves it (the denylist again).
     static func merge(_ leftovers: [Leftover]) -> [Leftover] {
         var best: [String: Leftover.Match] = [:]
-        for leftover in leftovers where Denylist.reason(for: leftover.path) == nil {
+        for leftover in leftovers {
+            if let reason = Denylist.reason(for: leftover.path), reason != Denylist.sipReason { continue }
             best[leftover.path] = min(best[leftover.path] ?? leftover.match, leftover.match)
         }
         let paths = Set(best.keys)

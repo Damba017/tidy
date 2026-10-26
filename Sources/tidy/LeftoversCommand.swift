@@ -39,12 +39,13 @@ func runLeftovers(name: String?, dryRun: Bool) -> Int32 {
     }
     show("Looking for leftovers of \"\(name)\"…")
     let found = LeftoverSearch.find(name, others: apps)
-    let (group, privacyProtected) = reviewGroup(
+    let (group, privacyProtected, sipProtected) = reviewGroup(
         title: "Leftovers of \"\(name)\"", detail: "not installed any more",
         entries: found.map { ($0.path, $0.match.label, similar.isEmpty && $0.checkedByDefault) })
     let list = ReviewList(groups: [group])
     let notSearched = Leftovers.unreadable(Leftovers.locations())
     guard !list.groups.isEmpty else {
+        showSIPNote(sipProtected)
         showPrivacyNotes(protected: privacyProtected, notSearched: notSearched)
         show("")
         show("No leftovers of \"\(name)\" found; nothing was changed.")
@@ -65,6 +66,7 @@ func runLeftovers(name: String?, dryRun: Bool) -> Int32 {
         printPlain(list)
         selected = list.selectedPaths
     }
+    showSIPNote(sipProtected)
     showPrivacyNotes(protected: privacyProtected, notSearched: notSearched)
     guard !selected.isEmpty else {
         print("Nothing selected; nothing was changed.")
