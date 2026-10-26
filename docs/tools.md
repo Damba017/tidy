@@ -25,7 +25,7 @@ Checked on 2026-10-21 (read-only): `swift` and `python3` are in `/usr/bin`, `bre
 
 ## taydic itself (`~/.local/bin/taydic`)
 
-- **Installed:** `cp .build/release/taydic ~/.local/bin/taydic` after Damba's yes, checked with `cmp` and `taydic --version` (procedure: "Stack, build and install" in `docs/rules.md`). Version: ask `taydic --version` (1.1.0 on 2026-10-21).
+- **Installed:** `cp .build/release/taydic ~/.local/bin/taydic` after Damba's yes, checked with `cmp` and `taydic --version` (procedure: "Stack, build and install" in `docs/rules.md`). Version: ask `taydic --version` (1.1.1 on 2026-10-26).
 - **Uninstall:** move `~/.local/bin/taydic` to the Trash (Finder, or `taydic disk`). No `rm`.
 - **Left behind:** the log `~/.local/state/taydic/log` and the old log `~/.local/state/tidy/log`. Keep them: they're the only way to find where sudo-moved items went in the Trash.
 - **Needed for:** this is the product.

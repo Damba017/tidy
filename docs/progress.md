@@ -4,11 +4,11 @@ Read this first, every session. Update it in max 5 lines after each completed pl
 
 ## Last step
 
-2026-10-26: Damba's real Roblox uninstall: 18 moved, 1 FAILED (`$TMPDIR/com.apple.WebKit.GPU+com.roblox.RobloxPlayer`, SIP flag `sunlnk`). The denylist now refuses `sunlnk` too; such items aren't in the list, a note after it names them ("Not in the list: protected by System Integrity Protection"). 134 tests. Damba tested the dry-runs (fake app in `/tmp/tidy-test/sip-demo`, `uninstall marktplaats`); committed and pushed. Not installed: `~/.local/bin/taydic` is still 1.1.0.
+2026-10-26: Damba's real Roblox uninstall: 18 moved, 1 FAILED (`$TMPDIR/com.apple.WebKit.GPU+com.roblox.RobloxPlayer`, SIP flag `sunlnk`). The denylist now refuses `sunlnk` too; such items aren't in the list, a note after it names them ("Not in the list: protected by System Integrity Protection"). 134 tests. Damba tested the dry-runs (fake app in `/tmp/tidy-test/sip-demo`, `uninstall marktplaats`); committed and pushed (`44c29c1`). Installed as **1.1.1** (his choice), checked with `cmp` and `--version`.
 
 ## Next step
 
-Install when Damba wants (ask which version). Then wait for his next idea, or for the Cleanup phase (`docs/plan.md`, phase 11).
+Wait for Damba's next idea, or for the Cleanup phase (`docs/plan.md`, phase 11).
 
 ## Open issues
 
@@ -17,7 +17,7 @@ Install when Damba wants (ask which version). Then wait for his next idea, or fo
 
 ## Current state
 
-taydic **1.1.0** is installed as `~/.local/bin/taydic` (in his PATH). 134 tests, everything pushed, including the `sunlnk` change (not installed yet). His Terminal has Full Disk Access since 2026-10-19; the Claude app doesn't.
+taydic **1.1.1** (1.1.0 plus the `sunlnk` change) is installed as `~/.local/bin/taydic` (in his PATH). 134 tests. His Terminal has Full Disk Access since 2026-10-19; the Claude app doesn't.
 
 ## Finished phases (one line each)
 
