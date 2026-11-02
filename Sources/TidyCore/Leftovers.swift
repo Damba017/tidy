@@ -30,7 +30,14 @@ public enum Leftovers {
     /// Every folder leftovers are looked for in, one level deep. `temp`: the user's own temp and cache
     /// folders (see `Paths.userTempFolders`).
     public static func locations(home: String = Paths.home, temp: [String] = Paths.userTempFolders) -> [String] {
-        libraryLocations(home: home) + [home + "/Library"] + temp
+        libraryLocations(home: home) + [home + "/Library"] + temp + [backgroundDownloads(home: home)]
+    }
+
+    /// Where macOS's background-download service (nsurlsessiond) keeps a folder per app, named after the
+    /// app's bundle ID (net.imput.helium), for the downloads it does on the app's behalf. Searched by the rules
+    /// of the temp folders; Apple's own folders in there (com.apple.bird) only ever match by bundle ID.
+    static func backgroundDownloads(home: String) -> String {
+        home + "/Library/Caches/com.apple.nsurlsessiond/Downloads"
     }
 
     static func libraryLocations(home: String) -> [String] {
@@ -52,18 +59,19 @@ public enum Leftovers {
     }
 
     /// The Library and temp leftovers for something with this bundle ID (if any) and these names.
-    /// `temp`: the user's temp and cache folders. `others`: the other apps on this Mac (see `otherApps`).
+    /// `temp`: the user's temp and cache folders; nsurlsessiond's download folder goes by their rules too.
+    /// `others`: the other apps on this Mac (see `otherApps`).
     public static func find(bundleID: String?, names: [String], home: String, temp: [String], others: [App]) -> [Leftover] {
-        find(bundleID: bundleID, names: names, in: libraryLocations(home: home), strict: [home + "/Library"], temp: temp,
-             others: others)
+        find(bundleID: bundleID, names: names, in: libraryLocations(home: home), strict: [home + "/Library"],
+             temp: temp + [backgroundDownloads(home: home)], others: others)
     }
 
     /// Looks one level deep in each of `locations`, `strict` and `temp`. In `strict` (~/Library itself, full of
     /// macOS's own folders) only a bundle ID or the exact name counts, never a fuzzy match. In `temp` (the user's
-    /// temp and cache folders, full of every program's files) a fuzzy match counts only for a name shaped like a
-    /// bundle ID (com.roblox.player.installer.lock), never for a plain one. Neither ever offers a name of macOS's
-    /// own folders. What another app claims as well is left out: with a longer bundle ID it's that
-    /// app's (com.google.Chrome.canary next to com.google.Chrome, com.foo.AppBeta next to com.foo.App);
+    /// temp and cache folders, full of every program's files, and nsurlsessiond's download folder) a fuzzy match
+    /// counts only for a name shaped like a bundle ID (com.roblox.player.installer.lock), never for a plain one.
+    /// Neither ever offers a name of macOS's own folders. What another app claims as well is left out: with a
+    /// longer bundle ID it's that app's (com.google.Chrome.canary next to com.google.Chrome, com.foo.AppBeta next to com.foo.App);
     /// with the same bundle ID (a second copy, Xcode-beta next to Xcode) or by the same name
     /// (Firefox Nightly is "firefox" too, in the same Application Support/Firefox) it's shared.
     static func find(bundleID: String?, names: [String], in locations: [String], strict: [String] = [],

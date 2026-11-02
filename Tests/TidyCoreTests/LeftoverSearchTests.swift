@@ -101,6 +101,21 @@ func namesThatCantBeSearchedFor(name: String) {
     #expect(found.filter { ![cache, tempCache].contains($0.path) }.allSatisfy { $0.match == .name })
 }
 
+@Test func backgroundDownloadFoldersAreFoundByNameOnlyAsFuzzy() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let downloads = "home/Library/Caches/com.apple.nsurlsessiond/Downloads/"
+    let own = try fx.folder(downloads + "net.imput.helium")        // no bundle ID to go by: fuzzy
+    try fx.folder(downloads + "com.apple.helium.agent")              // Apple's: never by name
+    try fx.folder(downloads + "net.imput.helium.beta")               // another app's, still installed
+    let others = [app("Helium Beta", "net.imput.helium.beta")]
+
+    let found = LeftoverSearch.find("helium", home: fx.home, temp: [], toolFolders: [], others: others)
+
+    #expect(found == [Leftover(path: own, match: .fuzzy)])
+    #expect(found.first?.checkedByDefault == false)
+}
+
 @Test func dotfilesOfAToolMacOSHasStayInTheSearchToo() throws {
     let fx = try Fixture()
     defer { fx.remove() }

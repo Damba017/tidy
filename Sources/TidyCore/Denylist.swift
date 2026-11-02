@@ -84,6 +84,7 @@ public enum Denylist {
             "Application Support", "Caches", "Preferences", "Preferences/ByHost", "Containers",
             "Group Containers", "Saved Application State", "HTTPStorages", "WebKit", "Logs",
             "Logs/DiagnosticReports", "LaunchAgents", "Cookies", "Application Scripts",
+            "Caches/com.apple.nsurlsessiond/Downloads",  // nsurlsessiond's, one folder per app inside
         ]
         let systemLibrary = [
             "Application Support", "Caches", "Preferences", "LaunchAgents", "LaunchDaemons",

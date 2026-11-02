@@ -275,7 +275,28 @@ private func other(_ bundleID: String?, at path: String, name: String? = nil, ex
     #expect(found.first { $0.path == installer }?.match == .bundleIDPrefix)
     #expect(found.first { $0.path == lock }?.match == .fuzzy)
     #expect(found.first { $0.path == lock }?.checkedByDefault == false)
-    #expect(Leftovers.locations(home: fx.home, temp: temp).suffix(3) == [fx.home + "/Library"] + temp)
+    let downloads: String = fx.home + "/Library/Caches/com.apple.nsurlsessiond/Downloads"
+    let last: [String] = [fx.home + "/Library"] + temp + [downloads]
+    #expect(Array(Leftovers.locations(home: fx.home, temp: temp).suffix(4)) == last)
+}
+
+@Test func backgroundDownloadFoldersOfTheAppAreFoundByItsBundleID() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let downloads = "home/Library/Caches/com.apple.nsurlsessiond/Downloads/"
+    let own = try fx.folder(downloads + "net.imput.helium")                 // nsurlsessiond's folder for the app
+    try fx.file(downloads + "com.apple.parsecd/URLSessionDownload_x.tmp")   // macOS's own
+    try fx.folder(downloads + "net.imput.helium.beta")                      // another app, still installed
+    try fx.folder(downloads + "HeliumStuff")                                // fuzzy and a plain name: not here
+    let beta = App(path: fx.root + "/apps/Helium Beta.app", bundleID: "net.imput.helium.beta", bundleName: nil,
+                   displayName: nil, executable: nil, source: .manual)
+
+    let found = Leftovers.find(bundleID: "net.imput.helium", names: ["Helium"], home: fx.home, temp: [], others: [beta])
+
+    #expect(found == [Leftover(path: own, match: .bundleID)])
+    // nsurlsessiond's folder itself never goes, only what's in it.
+    #expect(Denylist.reason(for: Paths.parent(own), home: fx.home) == "standard folder, only what's inside may go")
+    #expect(Denylist.reason(for: own, home: fx.home) == nil)
 }
 
 @Test func whatASecondCopyOrAnAppByTheSameNameUsesStays() throws {

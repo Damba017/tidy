@@ -4,20 +4,20 @@ Read this first, every session. Update it in max 5 lines after each completed pl
 
 ## Last step
 
-2026-10-26: Damba's real Roblox uninstall: 18 moved, 1 FAILED (`$TMPDIR/com.apple.WebKit.GPU+com.roblox.RobloxPlayer`, SIP flag `sunlnk`). The denylist now refuses `sunlnk` too; such items aren't in the list, a note after it names them ("Not in the list: protected by System Integrity Protection"). 134 tests. Damba tested the dry-runs (fake app in `/tmp/tidy-test/sip-demo`, `uninstall marktplaats`); committed and pushed (`44c29c1`). Installed as **1.1.1** (his choice), checked with `cmp` and `--version`.
+2026-11-02: after his real Helium uninstall, leftovers are also searched in `~/Library/Caches/com.apple.nsurlsessiond/Downloads` (one folder per app, by bundle ID; rules of `T`/`C`), and that folder is a standard folder in the denylist. `X` and `0` stay alone (his choice; see `docs/history.md`). 137 tests. Damba tested it: `leftovers helium` (fuzzy) and a real `uninstall helium` (5 moved, the new folder too; only `X` left). Committed, not installed or pushed.
 
 ## Next step
 
-Wait for Damba's next idea, or for the Cleanup phase (`docs/plan.md`, phase 11).
+When Damba asks: install (ask which version) and push. Otherwise wait for his next idea, or the Cleanup phase (`docs/plan.md`, phase 11).
 
 ## Open issues
 
 - Left open on purpose: #8 of the final review (`taydic uninstall Foo.app` by name says "Nothing matches"), spotting protected app containers before the move, grouping the review list per folder, a license.
-- Never run for real yet: `launchctl bootout`, `brew uninstall`. Watch the first time.
+- Never run for real yet: `launchctl bootout`. Watch the first time. (`brew uninstall --cask` ran for real on 2026-11-02, Helium: worked.)
 
 ## Current state
 
-taydic **1.1.1** (1.1.0 plus the `sunlnk` change) is installed as `~/.local/bin/taydic` (in his PATH). 134 tests. His Terminal has Full Disk Access since 2026-10-19; the Claude app doesn't.
+taydic **1.1.1** (1.1.0 plus the `sunlnk` change) is installed as `~/.local/bin/taydic` (in his PATH); the nsurlsessiond change is committed on top, not installed yet. 137 tests. His Terminal has Full Disk Access since 2026-10-19; the Claude app doesn't.
 
 ## Finished phases (one line each)
 

@@ -224,6 +224,26 @@ private func flow(_ candidate: Candidate, in fx: Fixture, _ t: Transcript, _ bre
     #expect(fx.trashed() == ["com.example.tidytest"])
 }
 
+@Test func aCasksBackgroundDownloadFolderIsASureLeftover() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let own = try fx.folder("home/Library/Caches/com.apple.nsurlsessiond/Downloads/com.example.tidytest")
+    let apples = try fx.folder("home/Library/Caches/com.apple.nsurlsessiond/Downloads/com.apple.bird")
+    let app = App(path: fx.root + "/apps/TidyTest.app", bundleID: "com.example.tidytest", bundleName: nil,
+                  displayName: nil, executable: nil, source: .manual)
+    let cask = Candidate(package: BrewPackage(name: "tidytestcask", kind: .cask, apps: ["TidyTest.app"]), app: app)
+    let t = Transcript()
+    t.answers = [true, false, true]  // uninstall: yes, --zap: no, leftovers: yes
+
+    #expect(flow(cask, in: fx, t, FakeBrew()))
+
+    // On the one y/N for the sure items, not asked separately.
+    #expect(t.questions.last?.hasPrefix("Move 1 item, ") == true)
+    #expect(!Paths.exists(own))
+    #expect(Paths.exists(apples))
+    #expect(fx.trashed() == ["com.example.tidytest"])
+}
+
 @Test func tempFilesOfAToolThatStillRunsStay() throws {
     let fx = try Fixture()
     defer { fx.remove() }
