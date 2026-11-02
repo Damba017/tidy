@@ -12,7 +12,7 @@ Read this first, every session. Update it in max 5 lines after each completed pl
 
 ## Next step
 
-Damba's real `uninstall zen` with 1.2.0 (`--zap` No): does the Mozilla folder go? After that: his next idea, or the Cleanup phase (`docs/plan.md`, phase 11).
+His next idea, or the Cleanup phase (`docs/plan.md`, phase 11).
 
 ## Open issues
 
