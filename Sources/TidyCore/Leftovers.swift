@@ -293,7 +293,8 @@ public enum Leftovers {
         .sorted { ($0.match, $0.path) < ($1.match, $1.path) }
     }
 
-    private static func pkgutil(_ arguments: [String]) -> String {
+    /// What `pkgutil` (read-only queries only) prints, or "" when it fails.
+    static func pkgutil(_ arguments: [String]) -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/sbin/pkgutil")
         process.arguments = arguments

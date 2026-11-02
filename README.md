@@ -23,7 +23,7 @@ The project is called *tidy*; the command is `taydic` ("taydi cleaner") because 
 - **Default is No.** Every question is `(y/N)`: Enter means no, and only `y` or `yes` counts. There is no `--yes`, and input that isn't a terminal answers no.
 - **Doubtful items are asked about separately.** Fuzzy name matches and orphans never go along on the same `y` as the sure items: `y = all · o = one by one · N = none`.
 - **Everything goes to the Trash**, never deleted. Items that need administrator rights are moved with `sudo mv` after one explicit question, and the log says where they came from.
-- **A denylist** keeps taydic away from macOS itself and from what matters most, whatever the matching says: `/System`, `/usr`, `/private/var` (except what's inside your own temp and cache folders), keychains, Mail, Messages, iCloud Drive, your Photos library, `~/.ssh`, your home folder and the standard folders themselves, mount points, anything SIP-protected. It's checked when the plan is made and again right before every move.
+- **A denylist** keeps taydic away from macOS itself and from what matters most, whatever the matching says: `/System`, `/usr`, `/private/var` (except what's inside your own temp and cache folders), whatever macOS itself installed outside `/System` (read from its own install receipt), keychains, Mail, Messages, iCloud Drive, your Photos library, `~/.ssh`, your home folder and the standard folders themselves, mount points, anything SIP-protected. It's checked when the plan is made and again right before every move.
 - **A log** of every move: `~/.local/state/taydic/log` (time, what, size, where it went in the Trash, whether sudo was used), and of every reset of an app's privacy permissions.
 
 ## Requirements

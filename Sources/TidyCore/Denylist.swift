@@ -32,14 +32,25 @@ public enum Denylist {
         if (path as NSString).lastPathComponent.hasPrefix(".") && isVolumeRoot(Paths.parent(path)) {
             return "hidden system item at the root of a volume"
         }
+        // What macOS itself installed (see `macOSTemplate`). SIP's reason goes first: those get named after the list.
+        let fromMacOS = macOSTemplate.contains(lower) ? macOSTemplateReason : nil
         var st = stat()
-        guard lstat(path, &st) == 0 else { return nil }
+        guard lstat(path, &st) == 0 else { return fromMacOS }
         if isSIPProtected(flags: st.st_flags) { return sipReason }
         if isVolumeRoot(path) { return "mount point" }
-        return nil
+        return fromMacOS
     }
 
     public static let sipReason = "protected by System Integrity Protection"
+    static let macOSTemplateReason = "macOS's own, installed with macOS"
+
+    /// Every path macOS itself lays down outside the system volume, its "data template" (/Library/Application
+    /// Support/BTServer, /Library/Preferences/Logging, /Library/Application Support/Mozilla with the Apple Passwords
+    /// file for Firefox), in lowercase. macOS puts them back with its updates. Read once from that package's
+    /// receipt (pkgutil, read-only); empty if that fails. Only these paths themselves: what an app put inside one
+    /// of these folders (/Library/Fonts, /Library/Application Support/ProApps) may still go.
+    static let macOSTemplate: Set<String> = Set(
+        Leftovers.pkgutil(["--files", "com.apple.files.data-template"]).split(separator: "\n").map { "/" + $0.lowercased() })
 
     /// SIP's flags: `restricted` (the system), and `sunlnk` (can't be moved or deleted, e.g. the
     /// sandbox folders macOS makes in the temp folder, like `com.apple.WebKit.GPU+<bundle ID>`).

@@ -50,6 +50,23 @@ func ordinaryPathsMayBeOffered(path: String) {
     #expect(Denylist.reason(for: Paths.normalize(path)) == nil, "\(path) should be allowed")
 }
 
+@Test func whatMacOSItselfInstalledIsNeverOffered() {
+    // Read from macOS's own receipt on this Mac. None of these is an app's: Bluetooth's tables, the diagnostics
+    // settings, the log settings, the Apple Passwords file for Firefox (macOS's, not Firefox's).
+    for path in ["/Library/Application Support/BTServer", "/Library/Application Support/CrashReporter",
+                 "/Library/Preferences/Logging", "/Library/Application Support/Mozilla",
+                 "/LIBRARY/application support/mozilla"] {
+        #expect(Denylist.reason(for: Paths.normalize(path)) == Denylist.macOSTemplateReason, "\(path)")
+    }
+    // Only those paths themselves: what an app puts inside one of these folders may still go.
+    #expect(Denylist.reason(for: "/Library/Application Support/ProApps/tidy-test-app") == nil)
+    #expect(Denylist.reason(for: "/Library/Application Support/tidy-test-app") == nil)
+    // A leftover search never offers them, and a plan never moves them.
+    #expect(Leftovers.merge([Leftover(path: "/Library/Application Support/Mozilla", match: .name)]).isEmpty)
+    let plan = RemovalPlan(paths: ["/Library/Application Support/BTServer"])
+    #expect(plan.items.map(\.status) == [.blocked(Denylist.macOSTemplateReason)])
+}
+
 @Test func onlyWhatsInsideYourOwnTempAndCacheFoldersMayGo() throws {
     let folders = Paths.userTempFolders
     #expect(folders.count == 2)

@@ -4,11 +4,13 @@ Read this first, every session. Update it in max 5 lines after each completed pl
 
 ## Last step
 
+2026-11-02 (later): `leftovers mozilla` offered `/Library/Application Support/Mozilla`, which is macOS's (Apple Passwords for Firefox, from its data template). The denylist now refuses every path macOS's data template installed (`pkgutil --files com.apple.files.data-template`, read once). 138 tests. Damba tested it (`leftovers mozilla` finds nothing now) and removed the empty Chrome and Spotify download folders.
+
 2026-11-02: after his real Helium uninstall, leftovers are also searched in `~/Library/Caches/com.apple.nsurlsessiond/Downloads` (one folder per app, by bundle ID; rules of `T`/`C`), and that folder is a standard folder in the denylist. `X` and `0` stay alone (his choice; see `docs/history.md`). 137 tests. Damba tested it: `leftovers helium` (fuzzy) and a real `uninstall helium` (5 moved, the new folder too; only `X` left). Committed, installed as **1.1.2** (his choice), checked with `cmp` and `--version`, pushed.
 
 ## Next step
 
-Wait for Damba's next idea, or for the Cleanup phase (`docs/plan.md`, phase 11).
+Damba tests the macOS-template rule (`leftovers mozilla --dry-run`, `_plan`), and removes the empty Chrome and Spotify download folders with `taydic leftovers`. Then commit; install and push only when he asks.
 
 ## Open issues
 

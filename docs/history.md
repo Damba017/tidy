@@ -44,6 +44,12 @@ Goal: a full code review at max effort, looking for anything that could remove t
   - He reinstalled Helium (`brew install helium-browser`, which brew took as the cask) and ran `uninstall helium` for real: 5 items (130 MB) moved, `Downloads/net.imput.helium` among them, on the one sure `y/N`.
   - His `find` afterwards showed brew's dmg (gone after `brew cleanup --prune=all`) and the `X` clone, which is left until the next restart.
   - Committed as `03e6d26`, installed as **1.1.2**, pushed.
+- 2026-11-02 (later): Damba asked what Firefox, Spotify, Deezer and Chrome had left. Agent dry-runs found:
+  - Spotify and Chrome: only their empty nsurlsessiond download folders. He moved those himself with 1.1.2 (`leftovers spotify`, `leftovers chrome`).
+  - Firefox and Deezer: nothing.
+  - "mozilla": `/Library/Application Support/Mozilla`, offered ticked and needing sudo. It's macOS's own. Inside is one symlink, `NativeMessagingHosts/com.apple.passwordmanager.json`, which points into `/System/Cryptexes/…/PasswordManagerBrowserExtensionHelper`: Apple Passwords for Firefox, which does nothing without Apple's extension. `pkgutil --file-info` says the package `com.apple.files.data-template` installed it. taydic had moved it with sudo on 2026-10-20 (the sudo test). It was back on 2026-10-23 01:10, the same time as every other path from that package, so macOS's update had put it back.
+
+  Other paths from that package in taydic's scan folders: `BTServer` (Bluetooth tables), `CrashReporter` (diagnostics settings), `Preferences/Logging`, `ProApps`, `iLifeMediaBrowser` and `Script Editor`. His choice: the denylist refuses everything in that package, mainly because of `BTServer`, `CrashReporter` and `Logging`. The first version broke a SIP test: `/Library/Frameworks` is in the package *and* has `sunlnk`, and the SIP note after the list needs SIP's reason, so SIP's reason comes first. Damba tested: `leftovers mozilla --dry-run` now finds nothing.
 
 ## Where things stood on 2026-10-21
 
