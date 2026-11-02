@@ -4,7 +4,7 @@ Read this first, every session. Update it in max 5 lines after each completed pl
 
 ## Last step
 
-2026-11-02 (night): his Zen uninstall missed `~/Library/Caches/Mozilla/updates/Applications/Zen` (four levels deep; the cask's zap list has it). Now, when the answer to `--zap` is No (and in `--dry-run`), the brew flow reads the cask's zap list (`ZapList.swift`) and offers what exists: sure only in a Library folder and named after the app, the rest asked separately with the fuzzy ones; no `rmdir` (his choice). 146 tests. Damba tested the dry-runs: `zen` (the Mozilla folder, noted), `vscodium` (`com.vscodium.sfl4` ticked, `~/.vscode-oss` 327 MB asked separately). Committed, not installed. Small gap: without Full Disk Access, zap paths in protected folders are silently not found.
+2026-11-02 (night): his Zen uninstall missed `~/Library/Caches/Mozilla/updates/Applications/Zen` (four levels deep; the cask's zap list has it). Now, when the answer to `--zap` is No (and in `--dry-run`), the brew flow reads the cask's zap list (`ZapList.swift`) and offers what exists: sure only in a Library folder and named after the app, the rest asked separately with the fuzzy ones; no `rmdir` (his choice). 146 tests. Damba tested the dry-runs: `zen` (the Mozilla folder, noted), `vscodium` (`com.vscodium.sfl4` ticked, `~/.vscode-oss` 327 MB asked separately). Committed (`f0534fa`), installed as **1.2.0** (his choice), checked with `cmp` and `--version`; not pushed yet. Small gap: without Full Disk Access, zap paths in protected folders are silently not found.
 
 2026-11-02 (later): `leftovers mozilla` offered `/Library/Application Support/Mozilla`, which is macOS's (Apple Passwords for Firefox, from its data template). The denylist now refuses every path macOS's data template installed (`pkgutil --files com.apple.files.data-template`, read once). 138 tests. Damba tested it (`leftovers mozilla` finds nothing now) and removed the empty Chrome and Spotify download folders. Committed (`e2d150b`), installed as **1.1.3** (his choice), checked with `cmp` and `--version`, pushed.
 
@@ -12,7 +12,7 @@ Read this first, every session. Update it in max 5 lines after each completed pl
 
 ## Next step
 
-Install the zap list (version: his choice) and push, only when he says so. After that: his next idea, or the Cleanup phase (`docs/plan.md`, phase 11).
+Push 1.2.0 when he says so. After that: his next idea, or the Cleanup phase (`docs/plan.md`, phase 11).
 
 ## Open issues
 
@@ -21,7 +21,7 @@ Install the zap list (version: his choice) and push, only when he says so. After
 
 ## Current state
 
-taydic **1.1.3** (1.1.1 plus nsurlsessiond's download folder and the macOS-template rule) is installed as `~/.local/bin/taydic` (in his PATH). 138 tests. His Terminal has Full Disk Access since 2026-10-19; the Claude app doesn't.
+taydic **1.2.0** (1.1.3 plus the cask's zap list in the brew flow) is installed as `~/.local/bin/taydic` (in his PATH). 146 tests. His Terminal has Full Disk Access since 2026-10-19; the Claude app doesn't.
 
 ## Finished phases (one line each)
 
