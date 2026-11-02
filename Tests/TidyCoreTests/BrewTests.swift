@@ -25,12 +25,18 @@ private let casksJSON = """
 final class FakeBrew {
     var answers: [String: String] = [:]
     var runs: [[String]] = []
+    /// Every query and run, in order: "query info --cask …", "run uninstall --cask …".
+    var calls: [String] = []
     var status: Int32 = 0
 
-    func query(_ arguments: [String]) -> String { answers[arguments.joined(separator: " ")] ?? "" }
+    func query(_ arguments: [String]) -> String {
+        calls.append("query " + arguments.joined(separator: " "))
+        return answers[arguments.joined(separator: " ")] ?? ""
+    }
 
     func run(_ arguments: [String]) -> Int32 {
         runs.append(arguments)
+        calls.append("run " + arguments.joined(separator: " "))
         return status
     }
 }
@@ -316,4 +322,198 @@ private func flow(_ candidate: Candidate, in fx: Fixture, _ t: Transcript, _ bre
 
     #expect(noZap.questions == ["Uninstall tidytestcask (via brew)?", "Use --zap?"])
     #expect(brew.runs == [["uninstall", "--cask", "tidytestcask"], ["uninstall", "--zap", "--cask", "tidytestcask"]])
+}
+
+// MARK: - The cask's zap list, offered for the Trash when the answer to --zap is no
+
+/// What `brew info --cask --json=v2 tidytestcask` gives, with these zap stanzas.
+private func zapJSON(_ stanzas: String) -> String {
+    """
+    {"formulae": [], "casks": [{"token": "tidytestcask", "artifacts": [
+      {"uninstall": [{"quit": "com.example.tidytest", "delete": "/Library/TidyTest/uninstall-only"}]},
+      {"app": ["TidyTest.app"]},
+      {"zap": [\(stanzas)]}
+    ]}]}
+    """
+}
+
+/// A cask with an app TidyTest.app (bundle ID com.example.tidytest).
+private func tidyTestCask(_ fx: Fixture) -> Candidate {
+    let app = App(path: fx.root + "/apps/TidyTest.app", bundleID: "com.example.tidytest", bundleName: nil,
+                  displayName: nil, executable: nil, source: .manual)
+    return Candidate(package: BrewPackage(name: "tidytestcask", kind: .cask, apps: ["TidyTest.app"]), app: app)
+}
+
+@Test func zapPathsAreReadFromBrewJSON() {
+    // As Homebrew gave it for the zen cask on 2026-11-02 (shortened).
+    let zen = """
+        {"formulae": [], "casks": [{"token": "zen", "artifacts": [
+          {"app": ["Zen.app"]},
+          {"uninstall": [{"quit": "app.zen-browser.zen"}]},
+          {"zap": [{"trash": ["~/Library/Application Support/Zen", "~/Library/Caches/Mozilla/updates/Applications/Zen"],
+                    "rmdir": "~/Library/Caches/Mozilla"}]}
+        ]}]}
+        """
+    #expect(Brew.zapPaths(zen) == ["~/Library/Application Support/Zen", "~/Library/Caches/Mozilla/updates/Applications/Zen"])
+
+    // trash and delete, as a list or one string; the uninstall stanza's delete is brew's own business.
+    let json = zapJSON("""
+        {"trash": "~/Library/Caches/TidyTest", "delete": ["~/.tidytest"], "launchctl": "com.example.tidytest.agent"},
+        {"trash": ["~/Library/Preferences/com.example.tidytest*.plist"], "pkgutil": "com.example.tidytest.pkg"}
+        """)
+    #expect(Brew.zapPaths(json) == ["~/Library/Caches/TidyTest", "~/.tidytest", "~/Library/Preferences/com.example.tidytest*.plist"])
+
+    #expect(Brew.zapPaths(#"{"casks": [{"token": "x", "artifacts": [{"app": ["X.app"]}]}]}"#) == [])
+    #expect(Brew.zapPaths(#"{"formulae": [], "casks": []}"#) == nil)
+    #expect(Brew.zapPaths("") == nil)
+}
+
+@Test func zapPatternsAreExpandedLikeBrewDoes() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let prefs = try fx.file("home/Library/Preferences/com.example.tidytest.plist")
+    let helper = try fx.file("home/Library/Preferences/com.example.tidytest.helper.plist")
+    let support = try fx.folder("home/Library/Application Support/TidyTest")
+
+    #expect(ZapList.expand("~/Library/Preferences/com.example.tidytest*.plist", home: fx.home).sorted() == [helper, prefs])
+    #expect(ZapList.expand("~/Library/Application Support/{TidyTest,Gone}", home: fx.home) == [support])
+    #expect(ZapList.expand("~/Library/Application Support/tidytest", home: fx.home) == [support])  // as spelled on disk
+    #expect(ZapList.expand(support, home: fx.home) == [support])
+    #expect(ZapList.expand("~/Library/Caches/Gone", home: fx.home).isEmpty)
+    #expect(ZapList.expand("~/Library/Caches/Gone*", home: fx.home).isEmpty)
+    // Never relative, someone else's home, or with .. in it.
+    #expect(ZapList.expand("Library/Preferences/com.example.tidytest.plist", home: fx.home).isEmpty)
+    #expect(ZapList.expand("~root/Library", home: fx.home).isEmpty)
+    #expect(ZapList.expand("~/Library/../Library/Preferences/com.example.tidytest.plist", home: fx.home).isEmpty)
+}
+
+@Test func zapListItemsAreSureOnlyWhenNamedAfterTheAppInALibraryFolder() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let deep = try fx.folder("home/Library/Caches/Vendor/updates/Applications/TidyTest")  // name
+    let prefs = try fx.file("home/Library/Preferences/com.example.tidytest.plist")  // bundle ID
+    let shared = try fx.folder("home/Library/Application Support/Vendor")  // the maker's, maybe shared
+    let crash = try fx.file("home/Library/Logs/TidyTest_2026-11-02.crash")  // only fuzzy
+    let documents = try fx.folder("home/Documents/TidyTest")  // named after it, but not in a Library folder
+    let dotfile = try fx.folder("home/.tidytest")
+    let recents = try fx.file("home/Library/Application Support/com.apple.sharedfilelist/x/com.example.tidytest.sfl3")
+    try fx.folder("home/Library/Application Support/com.apple.sharedfilelist/x/com.apple.Safari.sfl3")  // Apple's own
+
+    let found = ZapList.leftovers(
+        ["~/Library/Caches/Vendor/updates/Applications/TidyTest", "~/Library/Preferences/com.example.tidytest*",
+         "~/Library/Application Support/Vendor", "~/Library/Logs/TidyTest_*", "~/Documents/TidyTest", "~/.tidytest",
+         "~/Library/Caches/Gone", "~/Library/Application Support/com.apple.sharedfilelist/x/*.sfl3",
+         "~/Library/Application Support/com.apple.sharedfilelist"],
+        bundleID: "com.example.tidytest", names: ["TidyTest", "tidytestcask"], app: nil, home: fx.home, others: [])
+    let matches = Dictionary(found.map { ($0.path, $0.match) }, uniquingKeysWith: { first, _ in first })
+
+    #expect(matches == [deep: .name, prefs: .bundleID, shared: .zap, crash: .zap, documents: .zap, dotfile: .zap,
+                        recents: .bundleID])
+    #expect(Leftover(path: shared, match: .zap).checkedByDefault == false)
+}
+
+@Test func zapListItemsOfAnotherAppAreLeftOut() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let own = try fx.folder("home/Library/Caches/com.example.tidytest")
+    let holder = try fx.folder("home/Library/Application Support/Vendor")
+    let inside = try makeApp(fx, "home/Library/Application Support/Vendor/Other.app", bundleID: "com.example.other")
+    try fx.folder("home/Library/Caches/com.example.tidytest.beta")  // an installed beta's, longer bundle ID
+    try fx.folder("home/Library/Caches/Other")  // the other app's name
+    let app = try makeApp(fx, "apps/TidyTest.app", bundleID: "com.example.tidytest")  // still there in a dry run
+    let others = [
+        App(path: inside, bundleID: "com.example.other", bundleName: nil, displayName: nil, executable: nil, source: .manual),
+        App(path: fx.root + "/apps/TidyTest Beta.app", bundleID: "com.example.tidytest.beta", bundleName: nil,
+            displayName: nil, executable: nil, source: .manual),
+    ]
+
+    let found = ZapList.leftovers(
+        ["~/Library/Caches/com.example.tidytest*", "~/Library/Application Support/Vendor", "~/Library/Caches/Other",
+         holder + "/Other.app/Contents", app],
+        bundleID: "com.example.tidytest", names: ["TidyTest"], app: app, home: fx.home, others: others)
+
+    #expect(found.map(\.path) == [own])
+}
+
+@Test func zapListItemsTheDenylistRefusesAreLeftOut() {
+    // Real folders, names only: nothing is moved, the list is just built.
+    let found = ZapList.leftovers(["~/Library/Caches", "~/Library", "~", "/Library/Application Support", "/System/Library/*"],
+                                  bundleID: "com.example.tidytest", names: ["TidyTest"], app: nil, home: Paths.home, others: [])
+    #expect(found.isEmpty)
+}
+
+@Test func withoutZapTheCasksZapListIsOfferedForTheTrash() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let deep = try fx.folder("home/Library/Caches/Vendor/updates/Applications/TidyTest")
+    try fx.file("home/Library/Caches/Vendor/updates/Applications/TidyTest/.parentlock")
+    let cache = try fx.folder("home/Library/Caches/com.example.tidytest")  // taydic finds this one itself too
+    let fuzzy = try fx.folder("home/Library/Caches/BetterTidyTest")  // only taydic's own search, fuzzy
+    let shared = try fx.folder("home/Library/Application Support/Vendor")
+    let brew = FakeBrew()
+    brew.answers["info --cask --json=v2 tidytestcask"] = zapJSON("""
+        {"trash": ["~/Library/Caches/Vendor/updates/Applications/TidyTest", "~/Library/Caches/com.example.tidytest",
+                   "~/Library/Application Support/Vendor", "~/Library/Caches/Gone"],
+         "rmdir": "~/Library/Caches/Vendor"}
+        """)
+    let t = Transcript()
+    t.answers = [true, false, true]  // uninstall: yes, --zap: no, the sure items: yes; the uncertain ones: none
+
+    #expect(flow(tidyTestCask(fx), in: fx, t, brew))
+
+    // Read before the uninstall, while brew still has the cask.
+    #expect(brew.calls == ["query info --cask --json=v2 tidytestcask", "run uninstall --cask tidytestcask"])
+    #expect(t.lines.contains { $0.hasSuffix("  TidyTest  (from the cask's zap list)") })
+    #expect(t.lines.contains { $0.hasSuffix("  com.example.tidytest") })  // found by taydic itself: no note
+    #expect(t.lines.contains { $0.hasPrefix("Uncertain items, asked separately (they may belong to another app too): 2 items") })
+    #expect(t.lines.contains { $0.hasSuffix("  Vendor  (from the cask's zap list)") })
+    #expect(t.lines.contains { $0.hasSuffix("  BetterTidyTest  (fuzzy match)") })
+    #expect(t.questions[2].hasPrefix("Move 2 items, "))
+    #expect(t.questions.last?.hasPrefix("Move the 2 uncertain items (") == true)
+    #expect(fx.trashed().sorted() == ["TidyTest", "com.example.tidytest"])
+    #expect(!Paths.exists(deep) && !Paths.exists(cache))
+    #expect(Paths.exists(shared) && Paths.exists(fuzzy))
+    #expect(Paths.exists(fx.home + "/Library/Caches/Vendor/updates/Applications"))  // rmdir is left out
+}
+
+@Test func withZapOrForAFormulaTheZapListIsNotRead() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let deep = try fx.folder("home/Library/Caches/Vendor/updates/Applications/TidyTest")
+    let brew = FakeBrew()
+    brew.answers["info --cask --json=v2 tidytestcask"] = zapJSON(#"{"trash": "~/Library/Caches/Vendor/updates/Applications/TidyTest"}"#)
+    let t = Transcript()
+    t.answers = [true, true]  // uninstall: yes, --zap: yes
+
+    #expect(flow(tidyTestCask(fx), in: fx, t, brew))
+    #expect(flow(formula("tidytesttool"), in: fx, Transcript(), brew, dryRun: true))
+
+    // brew's --zap deletes it (the fake one deletes nothing); taydic doesn't offer it as well.
+    #expect(brew.calls == ["run uninstall --zap --cask tidytestcask", "query uses --installed tidytesttool"])
+    #expect(!t.lines.contains { $0.contains("zap list") })
+    #expect(Paths.exists(deep))
+}
+
+@Test func aDryRunShowsTheZapListOrSaysItCouldntBeRead() throws {
+    let fx = try Fixture()
+    defer { fx.remove() }
+    let deep = try fx.folder("home/Library/Caches/Vendor/updates/Applications/TidyTest")
+    try fx.folder("home/Library/Caches/com.example.tidytest")
+    let brew = FakeBrew()
+    brew.answers["info --cask --json=v2 tidytestcask"] = zapJSON(#"{"trash": "~/Library/Caches/Vendor/updates/Applications/TidyTest"}"#)
+    let t = Transcript()
+    t.answer = true
+
+    #expect(flow(tidyTestCask(fx), in: fx, t, brew, dryRun: true))
+
+    #expect(brew.runs.isEmpty && t.questions.isEmpty)
+    #expect(t.lines.contains { $0.hasSuffix("  TidyTest  (from the cask's zap list)") })
+    #expect(Paths.exists(deep))
+
+    // brew's answer can't be read: taydic says so and offers what it finds itself.
+    let unread = Transcript()
+    #expect(flow(tidyTestCask(fx), in: fx, unread, FakeBrew(), dryRun: true))
+    #expect(unread.lines.contains("Couldn't read tidytestcask's zap list from brew, so only what taydic finds itself is offered."))
+    #expect(unread.lines.contains { $0.hasSuffix("  com.example.tidytest") })
+    #expect(!unread.lines.contains { $0.contains("TidyTest  (from") })
 }

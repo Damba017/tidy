@@ -91,6 +91,7 @@ Give one or more names (`taydic uninstall discord firefox fastfetch`), or none f
 - A running app is quit first (like ⌘Q), after you say yes.
 - After the yes that moves an app, taydic asks whether to reset its privacy permissions too (`tccutil reset All <bundle ID>`: what it was allowed to access, like your Downloads folder), so a new install asks again. That runs right before the app goes, because `tccutil` can't find an app that's already gone.
 - Homebrew packages are removed with `brew uninstall` (after a yes); their leftovers (`~/.config/<name>`, `~/.cache/<name>`, …) go to the Trash.
+- For a cask taydic asks about `--zap` (brew then deletes the files the cask lists, right away). Say no, and taydic reads that list itself and offers what of it is on your Mac for the Trash, along with what it found: ticked when it's in a Library folder and named after the app, otherwise asked separately, since some casks list folders other apps use too (`~/Library/Application Support/Microsoft`).
 
 ### `taydic disk`
 

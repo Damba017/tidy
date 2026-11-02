@@ -43,9 +43,16 @@ public enum BrewFlow {
         }
 
         var arguments = Brew.uninstallArguments(package, zap: false)
+        // Without --zap, what the cask's zap list names is offered below, for the Trash. Read before the
+        // uninstall, while brew certainly still has the cask. Nil: brew's answer couldn't be read.
+        var zapList: [String]? = []
+        let zapQuery = ["info", "--cask", "--json=v2", package.name]
         if dryRun {
             say("--dry-run: would run: brew \(arguments.joined(separator: " "))")
-            if package.kind == .cask { say("(taydic would also ask whether to use --zap; the answer would default to No.)") }
+            if package.kind == .cask {
+                say("(taydic would also ask whether to use --zap; the answer would default to No.)")
+                zapList = Brew.zapPaths(query(zapQuery))
+            }
         } else {
             guard ask("Uninstall \(package.name) (via brew)?") else {
                 say("Skipped \(package.name); its leftovers stay too.")
@@ -53,8 +60,13 @@ public enum BrewFlow {
             }
             if package.kind == .cask {
                 say("brew can also --zap: it then deletes the files the cask lists as its own (settings, caches)")
-                say("right away, NOT via the Trash. Without it, taydic offers those leftovers for the Trash below.")
-                if ask("Use --zap?") { arguments = Brew.uninstallArguments(package, zap: true) }
+                say("right away, NOT via the Trash. Without it, taydic offers those for the Trash below,")
+                say("with what it finds itself; what may be another app's too is asked separately.")
+                if ask("Use --zap?") {
+                    arguments = Brew.uninstallArguments(package, zap: true)
+                } else {
+                    zapList = Brew.zapPaths(query(zapQuery))
+                }
             }
             say("Running: brew \(arguments.joined(separator: " "))")
             let status = brew(arguments)
@@ -77,10 +89,19 @@ public enum BrewFlow {
             say("Not searched, so leftovers in there can't be found:")
             notSearched.forEach { say(Output.folderLine($0.path) + "  (\($0.reason))") }
         }
+        if zapList == nil {
+            say("Couldn't read \(package.name)'s zap list from brew, so only what taydic finds itself is offered.")
+        }
         // The cask's app (and so its bundle ID) came from before the uninstall, so it still counts.
-        var leftovers = Leftovers.merge(
+        let own = Leftovers.merge(
             (macOSTool == nil ? dotfiles : [])
                 + Leftovers.find(bundleID: candidate.app?.bundleID, names: candidate.names, home: home, temp: temp, others: others))
+        // What the zap list adds: only what taydic's own search didn't find.
+        let found = Set(own.map { Paths.normalize($0.path) })
+        let fromZap = ZapList.leftovers(zapList ?? [], bundleID: candidate.app?.bundleID, names: candidate.names,
+                                        app: candidate.app?.path, home: home, others: others)
+            .filter { !found.contains($0.path) }
+        var leftovers = Leftovers.merge(own + fromZap)
         // A program of that name still running (a formula's server, say) uses its temp files: they stay.
         let inTemp = leftovers.filter { leftover in temp.contains { leftover.path.hasPrefix($0 + "/") } }
         if let running = processes.first(where: { ($0 as NSString).lastPathComponent.lowercased() == package.name.lowercased() }),
@@ -95,7 +116,10 @@ public enum BrewFlow {
         say("")
         say("Leftovers of \(package.name):")
         let fuzzy = leftovers.filter { $0.match == .fuzzy }.map(\.path)
-        remove(RemovalPlan(paths: leftovers.map(\.path), doubtful: .fuzzy(fuzzy), home: home))
+        let unsure = leftovers.filter { $0.match == .zap }.map(\.path)
+        let notes = Dictionary(fromZap.map { ($0.path, "from the cask's zap list") }, uniquingKeysWith: { first, _ in first })
+        remove(RemovalPlan(paths: leftovers.map(\.path), doubtful: unsure.isEmpty ? .fuzzy(fuzzy) : .uncertain(fuzzy: fuzzy, zap: unsure),
+                           notes: notes, home: home))
         return true
     }
 }

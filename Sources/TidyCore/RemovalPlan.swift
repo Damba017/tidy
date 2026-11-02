@@ -33,6 +33,15 @@ public struct RemovalPlan: Sendable {
             Doubtful(paths: paths, one: "fuzzy match", many: "fuzzy matches", why: "only the name looks alike", notes: [:])
         }
 
+        /// Brew leftovers when the cask's zap list names some that may not be the app's alone (`zap`, see
+        /// `ZapList`): asked about together with the fuzzy matches. Each fuzzy one says so in its note; the
+        /// zap-list ones get theirs from the plan's `notes`.
+        public static func uncertain(fuzzy: [String], zap: [String]) -> Doubtful {
+            Doubtful(paths: fuzzy + zap, one: "uncertain item", many: "uncertain items",
+                     why: "they may belong to another app too",
+                     notes: Dictionary(fuzzy.map { ($0, "fuzzy match") }, uniquingKeysWith: { first, _ in first }))
+        }
+
         /// Library items no installed app claims; `notes` holds each one's confidence.
         public static func orphans(_ notes: [String: String]) -> Doubtful {
             Doubtful(paths: Array(notes.keys), one: "orphan", many: "orphans", why: "no installed app claims them",
@@ -61,8 +70,11 @@ public struct RemovalPlan: Sendable {
         self.init(paths: paths, doubtful: doubtful, privacy: privacy, home: Paths.home)
     }
 
-    init(paths: [String], doubtful: Doubtful? = nil, privacy: [PrivacyReset] = [], home: String) {
-        let notes = Dictionary((doubtful?.notes ?? [:]).map { (Paths.normalize($0.key), $0.value) }, uniquingKeysWith: { a, _ in a })
+    /// `notes`: shown next to those items, sure or doubtful, after the doubtful ones' own.
+    init(paths: [String], doubtful: Doubtful? = nil, privacy: [PrivacyReset] = [], notes extra: [String: String] = [:],
+         home: String) {
+        let notes = Dictionary(((doubtful?.notes ?? [:]).map { $0 } + extra.map { $0 }).map { (Paths.normalize($0.key), $0.value) },
+                               uniquingKeysWith: { a, _ in a })
         let guesses = Set((doubtful?.paths ?? []).map(Paths.normalize))
         var seen = Set<String>()
         var items: [Item] = []

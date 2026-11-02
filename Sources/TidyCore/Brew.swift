@@ -56,6 +56,25 @@ public enum Brew {
         }
     }
 
+    /// The paths a cask's zap stanza trashes or deletes, as brew gives them (`~` and wildcards still in them), from
+    /// `brew info --cask --json=v2 <cask>`: [] when it has none, nil when that answer can't be read. Its `rmdir`
+    /// (empty folders), `launchctl`, `pkgutil`, `quit`, `script` and the like are left out.
+    static func zapPaths(_ json: String) -> [String]? {
+        guard let root = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
+              let cask = (root["casks"] as? [[String: Any]])?.first else { return nil }
+        var paths: [String] = []
+        for artifact in cask["artifacts"] as? [[String: Any]] ?? [] {
+            // {"zap": [{"trash": ["~/Library/Caches/Zen", …], "rmdir": "~/Library/Caches/Mozilla"}]}
+            for stanza in artifact["zap"] as? [[String: Any]] ?? [] {
+                for key in ["trash", "delete"] {
+                    if let one = stanza[key] as? String { paths.append(one) }
+                    paths += stanza[key] as? [String] ?? []
+                }
+            }
+        }
+        return paths
+    }
+
     /// Where brew keeps the package itself.
     public static func location(of package: BrewPackage) -> String {
         "/opt/homebrew/" + (package.kind == .formula ? "Cellar/" : "Caskroom/") + package.name

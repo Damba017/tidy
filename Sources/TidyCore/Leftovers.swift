@@ -3,7 +3,8 @@ import Foundation
 public struct Leftover: Sendable, Equatable {
     /// How a leftover was matched to its app, strongest first.
     public enum Match: Int, Sendable, Comparable {
-        case bundleID, pkgReceipt, bundleIDPrefix, name, fuzzy
+        /// `zap`: only the cask's zap list names it, and it isn't plainly the app's (see `ZapList`).
+        case bundleID, pkgReceipt, bundleIDPrefix, name, fuzzy, zap
 
         public var label: String {
             switch self {
@@ -12,6 +13,7 @@ public struct Leftover: Sendable, Equatable {
             case .bundleIDPrefix: "bundle ID prefix"
             case .name: "name"
             case .fuzzy: "fuzzy"
+            case .zap: "zap list"
             }
         }
 
@@ -21,8 +23,8 @@ public struct Leftover: Sendable, Equatable {
     public let path: String
     public let match: Match
 
-    /// Fuzzy matches (the name only appears somewhere in it) start unchecked.
-    public var checkedByDefault: Bool { match != .fuzzy }
+    /// Fuzzy matches (the name only appears somewhere in it) and doubtful zap-list items start unchecked.
+    public var checkedByDefault: Bool { match != .fuzzy && match != .zap }
 }
 
 /// Finds what an app left behind in the Library folders and in its .pkg receipts.
@@ -83,15 +85,23 @@ public enum Leftovers {
         for location in locations + strict + temp {
             let isStrict = strict.contains(location)
             let isTemp = temp.contains(location)
-            for entry in AppFinder.contents(of: location) where !theirIDs.contains(where: { claims($0, entry) }) {
+            for entry in AppFinder.contents(of: location) {
                 guard let match = match(entry, bundleID: bundleID, names: names) else { continue }
                 if (isStrict || isTemp) && macOSFolderNames.contains(entry.lowercased()) { continue }
                 if match == .fuzzy && (isStrict || (isTemp && Junk.bundleID(in: entry) == nil)) { continue }
-                if match != .bundleID && Self.match(entry, bundleID: nil, names: theirNames) == .name { continue }
+                if othersClaim(entry, match: match, theirIDs: theirIDs, theirNames: theirNames) { continue }
                 found.append(Leftover(path: location + "/" + entry, match: match))
             }
         }
         return merge(found)
+    }
+
+    /// True when another app claims `entry` as well (see `find`): one of `theirIDs` (their bundle IDs that could
+    /// claim it) does, or it's named after one of `theirNames` (their usable names) and `match`, how it matched
+    /// this app, isn't this app's very bundle ID.
+    static func othersClaim(_ entry: String, match: Leftover.Match?, theirIDs: [String], theirNames: [String]) -> Bool {
+        theirIDs.contains { claims($0, entry) }
+            || (match != .bundleID && Self.match(entry, bundleID: nil, names: theirNames) == .name)
     }
 
     /// True when `entry` is named after `bundleID`: that ID itself, or it with more after it (com.foo.AppBeta
