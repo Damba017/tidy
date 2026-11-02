@@ -43,6 +43,7 @@ Goal: a full code review at max effort, looking for anything that could remove t
   - `leftovers helium --dry-run`: the folder showed up as fuzzy (0 B).
   - He reinstalled Helium (`brew install helium-browser`, which brew took as the cask) and ran `uninstall helium` for real: 5 items (130 MB) moved, `Downloads/net.imput.helium` among them, on the one sure `y/N`.
   - His `find` afterwards showed brew's dmg (gone after `brew cleanup --prune=all`) and the `X` clone, which is left until the next restart.
+  - Committed as `03e6d26`, installed as **1.1.2**, pushed.
 
 ## Where things stood on 2026-10-21
 

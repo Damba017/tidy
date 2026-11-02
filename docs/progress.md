@@ -4,11 +4,11 @@ Read this first, every session. Update it in max 5 lines after each completed pl
 
 ## Last step
 
-2026-11-02: after his real Helium uninstall, leftovers are also searched in `~/Library/Caches/com.apple.nsurlsessiond/Downloads` (one folder per app, by bundle ID; rules of `T`/`C`), and that folder is a standard folder in the denylist. `X` and `0` stay alone (his choice; see `docs/history.md`). 137 tests. Damba tested it: `leftovers helium` (fuzzy) and a real `uninstall helium` (5 moved, the new folder too; only `X` left). Committed, not installed or pushed.
+2026-11-02: after his real Helium uninstall, leftovers are also searched in `~/Library/Caches/com.apple.nsurlsessiond/Downloads` (one folder per app, by bundle ID; rules of `T`/`C`), and that folder is a standard folder in the denylist. `X` and `0` stay alone (his choice; see `docs/history.md`). 137 tests. Damba tested it: `leftovers helium` (fuzzy) and a real `uninstall helium` (5 moved, the new folder too; only `X` left). Committed, installed as **1.1.2** (his choice), checked with `cmp` and `--version`, pushed.
 
 ## Next step
 
-When Damba asks: install (ask which version) and push. Otherwise wait for his next idea, or the Cleanup phase (`docs/plan.md`, phase 11).
+Wait for Damba's next idea, or for the Cleanup phase (`docs/plan.md`, phase 11).
 
 ## Open issues
 
@@ -17,7 +17,7 @@ When Damba asks: install (ask which version) and push. Otherwise wait for his ne
 
 ## Current state
 
-taydic **1.1.1** (1.1.0 plus the `sunlnk` change) is installed as `~/.local/bin/taydic` (in his PATH); the nsurlsessiond change is committed on top, not installed yet. 137 tests. His Terminal has Full Disk Access since 2026-10-19; the Claude app doesn't.
+taydic **1.1.2** (1.1.1 plus nsurlsessiond's download folder) is installed as `~/.local/bin/taydic` (in his PATH). 137 tests. His Terminal has Full Disk Access since 2026-10-19; the Claude app doesn't.
 
 ## Finished phases (one line each)
 
